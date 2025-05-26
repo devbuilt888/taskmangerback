@@ -1,28 +1,39 @@
 const mongoose = require('mongoose');
-const Schema = mongoose.Schema;
 
-// Task schema definition
-const TaskSchema = new Schema({
-  userId: {
+const TaskSchema = new mongoose.Schema({
+  title: {
     type: String,
     required: true,
-    index: true
+    trim: true
+  },
+  description: {
+    type: String,
+    trim: true
   },
   boardId: {
-    type: String,
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Board',
     required: true
   },
   columnId: {
     type: String,
     required: true
   },
-  text: {
-    type: String,
-    required: true
+  isShared: {
+    type: Boolean,
+    default: true
   },
   color: {
     type: String,
     default: 'blue'
+  },
+  priority: {
+    type: String,
+    enum: ['low', 'medium', 'high'],
+    default: 'medium'
+  },
+  dueDate: {
+    type: Date
   },
   createdAt: {
     type: Date,
@@ -32,6 +43,12 @@ const TaskSchema = new Schema({
     type: Date,
     default: Date.now
   }
+});
+
+// Update the updatedAt timestamp before saving
+TaskSchema.pre('save', function(next) {
+  this.updatedAt = Date.now();
+  next();
 });
 
 module.exports = mongoose.model('Task', TaskSchema); 

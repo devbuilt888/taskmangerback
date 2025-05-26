@@ -1,36 +1,24 @@
 const mongoose = require('mongoose');
-const Schema = mongoose.Schema;
 
-// Column schema for nested columns within a board
-const ColumnSchema = new Schema({
-  id: {
-    type: String,
-    required: true
-  },
+const BoardSchema = new mongoose.Schema({
   title: {
     type: String,
     required: true,
     trim: true
   },
-  order: {
-    type: Number,
-    default: 0
-  }
-});
-
-// Board schema definition
-const BoardSchema = new Schema({
-  userId: {
+  description: {
     type: String,
-    required: true,
-    index: true
-  },
-  title: {
-    type: String,
-    required: true,
     trim: true
   },
-  columns: [ColumnSchema],
+  isShared: {
+    type: Boolean,
+    default: true
+  },
+  columns: [{
+    id: String,
+    title: String,
+    taskIds: [String]
+  }],
   createdAt: {
     type: Date,
     default: Date.now
@@ -39,6 +27,12 @@ const BoardSchema = new Schema({
     type: Date,
     default: Date.now
   }
+});
+
+// Update the updatedAt timestamp before saving
+BoardSchema.pre('save', function(next) {
+  this.updatedAt = Date.now();
+  next();
 });
 
 module.exports = mongoose.model('Board', BoardSchema); 

@@ -52,4 +52,40 @@ const requireAuth = async (req, res, next) => {
   }
 };
 
+/**
+ * Optional authentication middleware
+ * Continues to the next middleware regardless of authentication status
+ */
+requireAuth.optional = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return next();
+  }
+  
+  const token = authHeader.split(' ')[1];
+  
+  if (!token) {
+    return next();
+  }
+  
+  try {
+    // Try to verify the token, but continue anyway
+    clerk.verifyToken(token)
+      .then(({ sub }) => {
+        if (sub) {
+          req.userId = sub;
+        }
+        next();
+      })
+      .catch(err => {
+        console.error('Optional auth token error:', err);
+        next();
+      });
+  } catch (error) {
+    console.error('Optional auth error:', error);
+    next();
+  }
+};
+
 module.exports = { requireAuth }; 

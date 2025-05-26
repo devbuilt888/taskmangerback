@@ -1,104 +1,179 @@
 const express = require('express');
 const router = express.Router();
 const Task = require('../models/Task');
+const Board = require('../models/Board');
 const { requireAuth } = require('../middleware/auth');
 
-// Apply auth middleware to all routes
-router.use(requireAuth);
-
-// Get all tasks for a specific user and board
-router.get('/:boardId', async (req, res) => {
+// Get all tasks for a board
+router.get('/tasks/:boardId', async (req, res) => {
   try {
-    const { boardId } = req.params;
-    const userId = req.userId; // From auth middleware
-    
-    const tasks = await Task.find({ userId, boardId });
+    const tasks = await Task.find({ boardId: req.params.boardId });
     res.json(tasks);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('Error fetching tasks:', err);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
 // Create a new task
-router.post('/', async (req, res) => {
+router.post('/tasks', requireAuth.optional, async (req, res) => {
   try {
-    const userId = req.userId; // From auth middleware
-    const task = new Task({
+    // Ensure the task is marked as shared
+    const taskData = {
       ...req.body,
-      userId
-    });
+      isShared: true
+    };
     
-    const savedTask = await task.save();
-    res.status(201).json(savedTask);
+    // Remove userId if present
+    if (taskData.userId) {
+      delete taskData.userId;
+    }
+    
+    const task = new Task(taskData);
+    await task.save();
+    
+    // Update the board's column to include this task
+    await Board.findByIdAndUpdate(
+      task.boardId,
+      { 
+        $push: { 
+          'columns.$[elem].taskIds': task._id 
+        },
+        updatedAt: Date.now()
+      },
+      { 
+        arrayFilters: [{ 'elem.id': task.columnId }],
+        new: true 
+      }
+    );
+    
+    res.status(201).json(task);
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    console.error('Error creating task:', err);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
 // Update a task
-router.put('/:id', async (req, res) => {
+router.put('/tasks/:id', requireAuth.optional, async (req, res) => {
   try {
-    const { id } = req.params;
-    const userId = req.userId; // From auth middleware
+    // Remove userId if present and ensure isShared is true
+    const { userId, ...updates } = req.body;
+    updates.isShared = true;
     
-    const updatedTask = await Task.findOneAndUpdate(
-      { _id: id, userId },
-      { ...req.body, updatedAt: Date.now() },
-      { new: true }
+    const task = await Task.findByIdAndUpdate(
+      req.params.id,
+      { ...updates, updatedAt: Date.now() },
+      { new: true, runValidators: true }
     );
     
-    if (!updatedTask) {
-      return res.status(404).json({ error: 'Task not found or unauthorized' });
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
     }
     
-    res.json(updatedTask);
+    res.json(task);
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    console.error('Error updating task:', err);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
 // Delete a task
-router.delete('/:id', async (req, res) => {
+router.delete('/tasks/:id', requireAuth.optional, async (req, res) => {
   try {
-    const { id } = req.params;
-    const userId = req.userId; // From auth middleware
+    const task = await Task.findById(req.params.id);
     
-    const deletedTask = await Task.findOneAndDelete({ _id: id, userId });
-    
-    if (!deletedTask) {
-      return res.status(404).json({ error: 'Task not found or unauthorized' });
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
     }
+    
+    // Remove the task from the board's column
+    await Board.findByIdAndUpdate(
+      task.boardId,
+      { 
+        $pull: { 
+          'columns.$[elem].taskIds': task._id 
+        },
+        updatedAt: Date.now()
+      },
+      { 
+        arrayFilters: [{ 'elem.id': task.columnId }],
+        new: true 
+      }
+    );
+    
+    // Delete the task
+    await task.remove();
     
     res.json({ message: 'Task deleted successfully' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('Error deleting task:', err);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
 // Move a task to a different column
-router.patch('/:id/move', async (req, res) => {
+router.patch('/tasks/:id/move', requireAuth.optional, async (req, res) => {
   try {
-    const { id } = req.params;
     const { columnId } = req.body;
-    const userId = req.userId; // From auth middleware
     
     if (!columnId) {
       return res.status(400).json({ error: 'Column ID is required' });
     }
     
-    const updatedTask = await Task.findOneAndUpdate(
-      { _id: id, userId },
-      { columnId, updatedAt: Date.now() },
-      { new: true }
-    );
+    const task = await Task.findById(req.params.id);
     
-    if (!updatedTask) {
-      return res.status(404).json({ error: 'Task not found or unauthorized' });
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
     }
     
-    res.json(updatedTask);
+    // If the task is already in this column, do nothing
+    if (task.columnId === columnId) {
+      return res.json(task);
+    }
+    
+    // Get the old column ID
+    const oldColumnId = task.columnId;
+    
+    // Remove the task from the old column
+    await Board.findByIdAndUpdate(
+      task.boardId,
+      { 
+        $pull: { 
+          'columns.$[elem].taskIds': task._id 
+        },
+        updatedAt: Date.now()
+      },
+      { 
+        arrayFilters: [{ 'elem.id': oldColumnId }],
+        new: true 
+      }
+    );
+    
+    // Add the task to the new column
+    await Board.findByIdAndUpdate(
+      task.boardId,
+      { 
+        $push: { 
+          'columns.$[elem].taskIds': task._id 
+        },
+        updatedAt: Date.now()
+      },
+      { 
+        arrayFilters: [{ 'elem.id': columnId }],
+        new: true 
+      }
+    );
+    
+    // Update the task's column ID
+    task.columnId = columnId;
+    task.updatedAt = Date.now();
+    await task.save();
+    
+    res.json(task);
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    console.error('Error moving task:', err);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 

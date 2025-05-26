@@ -5,106 +5,98 @@ const Task = require('../models/Task');
 const mongoose = require('mongoose');
 const { requireAuth } = require('../middleware/auth');
 
-// Apply auth middleware to all routes
-router.use(requireAuth);
-
-// Get all boards for a user
-router.get('/', async (req, res) => {
+// Get all boards (shared, no authentication required)
+router.get('/boards', async (req, res) => {
   try {
-    const userId = req.userId; // From auth middleware
-    const boards = await Board.find({ userId });
+    const boards = await Board.find();
     res.json(boards);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('Error fetching boards:', err);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
-// Get a specific board by ID
-router.get('/:id', async (req, res) => {
+// Get a specific board
+router.get('/boards/:id', async (req, res) => {
   try {
-    const { id } = req.params;
-    const userId = req.userId; // From auth middleware
-    
-    const board = await Board.findOne({ _id: id, userId });
-    
+    const board = await Board.findById(req.params.id);
     if (!board) {
-      return res.status(404).json({ error: 'Board not found or unauthorized' });
+      return res.status(404).json({ error: 'Board not found' });
     }
-    
     res.json(board);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('Error fetching board:', err);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
 // Create a new board
-router.post('/', async (req, res) => {
+router.post('/boards', requireAuth.optional, async (req, res) => {
   try {
-    const userId = req.userId; // From auth middleware
-    const board = new Board({
+    // Ensure the board is marked as shared
+    const boardData = {
       ...req.body,
-      userId
-    });
+      isShared: true
+    };
     
-    const savedBoard = await board.save();
-    res.status(201).json(savedBoard);
+    // Initialize with default columns if not provided
+    if (!boardData.columns) {
+      boardData.columns = [
+        { id: 'column-1', title: 'To Do', taskIds: [] },
+        { id: 'column-2', title: 'In Progress', taskIds: [] },
+        { id: 'column-3', title: 'Done', taskIds: [] }
+      ];
+    }
+    
+    const board = new Board(boardData);
+    await board.save();
+    res.status(201).json(board);
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    console.error('Error creating board:', err);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
 // Update a board
-router.put('/:id', async (req, res) => {
+router.put('/boards/:id', requireAuth.optional, async (req, res) => {
   try {
-    const { id } = req.params;
-    const userId = req.userId; // From auth middleware
+    // Remove userId if present and ensure isShared is true
+    const { userId, ...updates } = req.body;
+    updates.isShared = true;
     
-    const updatedBoard = await Board.findOneAndUpdate(
-      { _id: id, userId },
-      { ...req.body, updatedAt: Date.now() },
-      { new: true }
+    const board = await Board.findByIdAndUpdate(
+      req.params.id,
+      { ...updates, updatedAt: Date.now() },
+      { new: true, runValidators: true }
     );
     
-    if (!updatedBoard) {
-      return res.status(404).json({ error: 'Board not found or unauthorized' });
+    if (!board) {
+      return res.status(404).json({ error: 'Board not found' });
     }
     
-    res.json(updatedBoard);
+    res.json(board);
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    console.error('Error updating board:', err);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
-// Delete a board and all its tasks
-router.delete('/:id', async (req, res) => {
-  // Use a transaction to ensure both operations succeed or fail together
-  const session = await mongoose.startSession();
-  session.startTransaction();
-  
+// Delete a board
+router.delete('/boards/:id', requireAuth.optional, async (req, res) => {
   try {
-    const { id } = req.params;
-    const userId = req.userId; // From auth middleware
+    const board = await Board.findByIdAndDelete(req.params.id);
     
-    // Delete the board
-    const deletedBoard = await Board.findOneAndDelete({ _id: id, userId }).session(session);
-    
-    if (!deletedBoard) {
-      await session.abortTransaction();
-      session.endSession();
-      return res.status(404).json({ error: 'Board not found or unauthorized' });
+    if (!board) {
+      return res.status(404).json({ error: 'Board not found' });
     }
     
-    // Delete all tasks associated with this board
-    await Task.deleteMany({ boardId: id, userId }).session(session);
+    // Delete all tasks for this board (would typically be handled by a Task model)
+    // await Task.deleteMany({ boardId: req.params.id });
     
-    await session.commitTransaction();
-    session.endSession();
-    
-    res.json({ message: 'Board and all its tasks deleted successfully' });
+    res.json({ message: 'Board deleted successfully' });
   } catch (err) {
-    await session.abortTransaction();
-    session.endSession();
-    res.status(500).json({ error: err.message });
+    console.error('Error deleting board:', err);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
