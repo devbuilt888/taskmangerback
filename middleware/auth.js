@@ -1,10 +1,27 @@
 const { Clerk } = require('@clerk/clerk-sdk-node');
-const clerk = Clerk({ apiKey: process.env.CLERK_API_KEY });
+
+// Initialize Clerk only if API key is available
+let clerk;
+try {
+  clerk = process.env.CLERK_API_KEY ? 
+    Clerk({ apiKey: process.env.CLERK_API_KEY }) : 
+    null;
+} catch (error) {
+  console.error('Failed to initialize Clerk:', error);
+  clerk = null;
+}
 
 /**
  * Middleware to verify Clerk JWT token
  */
 const requireAuth = async (req, res, next) => {
+  // If Clerk is not initialized, continue without authentication
+  if (!clerk) {
+    console.warn('Clerk not initialized. Skipping authentication.');
+    req.userId = 'anonymous';
+    return next();
+  }
+
   try {
     // Get the session token from the request headers
     const authHeader = req.headers.authorization;
@@ -57,15 +74,24 @@ const requireAuth = async (req, res, next) => {
  * Continues to the next middleware regardless of authentication status
  */
 requireAuth.optional = (req, res, next) => {
+  // If Clerk is not initialized, continue without authentication
+  if (!clerk) {
+    console.warn('Clerk not initialized. Skipping optional authentication.');
+    req.userId = 'anonymous';
+    return next();
+  }
+
   const authHeader = req.headers.authorization;
   
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    req.userId = 'anonymous';
     return next();
   }
   
   const token = authHeader.split(' ')[1];
   
   if (!token) {
+    req.userId = 'anonymous';
     return next();
   }
   
@@ -75,15 +101,19 @@ requireAuth.optional = (req, res, next) => {
       .then(({ sub }) => {
         if (sub) {
           req.userId = sub;
+        } else {
+          req.userId = 'anonymous';
         }
         next();
       })
       .catch(err => {
         console.error('Optional auth token error:', err);
+        req.userId = 'anonymous';
         next();
       });
   } catch (error) {
     console.error('Optional auth error:', error);
+    req.userId = 'anonymous';
     next();
   }
 };

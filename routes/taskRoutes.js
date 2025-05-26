@@ -37,7 +37,7 @@ router.post('/tasks', requireAuth.optional, async (req, res) => {
       task.boardId,
       { 
         $push: { 
-          'columns.$[elem].taskIds': task._id 
+          'columns.$[elem].taskIds': task._id.toString() 
         },
         updatedAt: Date.now()
       },
@@ -92,7 +92,7 @@ router.delete('/tasks/:id', requireAuth.optional, async (req, res) => {
       task.boardId,
       { 
         $pull: { 
-          'columns.$[elem].taskIds': task._id 
+          'columns.$[elem].taskIds': task._id.toString() 
         },
         updatedAt: Date.now()
       },
@@ -102,8 +102,8 @@ router.delete('/tasks/:id', requireAuth.optional, async (req, res) => {
       }
     );
     
-    // Delete the task
-    await task.remove();
+    // Delete the task - using deleteOne() instead of remove() which is deprecated
+    await Task.deleteOne({ _id: task._id });
     
     res.json({ message: 'Task deleted successfully' });
   } catch (err) {
@@ -140,7 +140,7 @@ router.patch('/tasks/:id/move', requireAuth.optional, async (req, res) => {
       task.boardId,
       { 
         $pull: { 
-          'columns.$[elem].taskIds': task._id 
+          'columns.$[elem].taskIds': task._id.toString() 
         },
         updatedAt: Date.now()
       },
@@ -155,7 +155,7 @@ router.patch('/tasks/:id/move', requireAuth.optional, async (req, res) => {
       task.boardId,
       { 
         $push: { 
-          'columns.$[elem].taskIds': task._id 
+          'columns.$[elem].taskIds': task._id.toString() 
         },
         updatedAt: Date.now()
       },

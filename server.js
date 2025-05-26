@@ -23,7 +23,8 @@ const corsOptions = {
       'http://localhost:3000',
       'http://localhost:5173',
       'https://task-manager-frontend.vercel.app',
-      'https://bbglobalsolutions.org'
+      'https://bbglobalsolutions.org',
+      'https://taskmangerback-t2b1.vercel.app'
     ].filter(Boolean); // Remove any undefined values
     
     // If FRONTEND_URL is not set or empty, allow all origins
@@ -54,16 +55,33 @@ app.use(express.json());
 
 // Health check endpoint
 app.get('/health', (req, res) => {
-  res.status(200).json({
-    status: 'ok',
-    timestamp: new Date().toISOString()
-  });
+  try {
+    res.status(200).json({
+      status: 'ok',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Health check error:', error);
+    res.status(200).json({
+      status: 'degraded',
+      timestamp: new Date().toISOString(),
+      message: 'Health endpoint working but encountered an error'
+    });
+  }
 });
 
 // Database status endpoint
 app.get('/db-status', (req, res) => {
-  const connected = mongoose.connection.readyState === 1;
-  res.status(200).json({ connected });
+  try {
+    const connected = mongoose.connection.readyState === 1;
+    res.status(200).json({ connected });
+  } catch (error) {
+    console.error('Database status check error:', error);
+    res.status(200).json({ 
+      connected: false,
+      error: 'Could not determine database connection status'
+    });
+  }
 });
 
 // API health check route
@@ -81,14 +99,20 @@ app.use(boardRoutes);
 app.use(taskRoutes);
 
 // Connect to MongoDB
-mongoose.connect(process.env.MONGODB_URI || config.MONGODB_URI, {
+mongoose.connect(process.env.MONGODB_URI || config.mongoURI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
 })
   .then(() => console.log('MongoDB connected'))
   .catch(err => {
     console.error('MongoDB connection error:', err);
-    process.exit(1);
+    // Don't exit the process in production, just log the error
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Exiting due to MongoDB connection failure');
+      process.exit(1);
+    } else {
+      console.error('Running in production mode without database connection');
+    }
   });
 
 // Error handling middleware

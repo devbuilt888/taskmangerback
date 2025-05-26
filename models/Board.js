@@ -15,9 +15,18 @@ const BoardSchema = new mongoose.Schema({
     default: true
   },
   columns: [{
-    id: String,
-    title: String,
-    taskIds: [String]
+    id: {
+      type: String,
+      required: true
+    },
+    title: {
+      type: String,
+      required: true
+    },
+    taskIds: {
+      type: [String],
+      default: []
+    }
   }],
   createdAt: {
     type: Date,

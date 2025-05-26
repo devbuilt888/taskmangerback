@@ -12,7 +12,8 @@ const customCors = (req, res, next) => {
     'http://localhost:3000',
     'http://localhost:5173',
     'https://task-manager-frontend.vercel.app',
-    'https://bbglobalsolutions.org'
+    'https://bbglobalsolutions.org',
+    'https://taskmangerback-t2b1.vercel.app'
   ].filter(Boolean); // Remove any undefined values
   
   // If FRONTEND_URL is not set or empty, allow all origins in non-production
