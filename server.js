@@ -94,26 +94,217 @@ app.get('/', (req, res) => {
   res.json({ message: 'Task Manager API is running' });
 });
 
+// Add fallback middleware for database disconnection
+app.use((req, res, next) => {
+  // If MongoDB is not connected and the route is a data fetch route
+  if (mongoose.connection.readyState !== 1 && 
+      (req.path.includes('/boards') || req.path.includes('/tasks'))) {
+    
+    console.warn(`Database not connected, using mock data for ${req.path}`);
+    
+    // Return appropriate mock results based on the endpoint
+    if (req.method === 'GET') {
+      if (req.path === '/boards') {
+        // Return a mock board
+        return res.json([
+          {
+            _id: "mock-board-id-1",
+            title: "Mock Board",
+            description: "This is a mock board created because the database is unavailable",
+            isShared: true,
+            columns: [
+              {
+                id: "column-1",
+                title: "To Do",
+                taskIds: ["mock-task-1", "mock-task-2"]
+              },
+              {
+                id: "column-2",
+                title: "In Progress",
+                taskIds: ["mock-task-3"]
+              },
+              {
+                id: "column-3",
+                title: "Done",
+                taskIds: []
+              }
+            ],
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          }
+        ]);
+      } else if (req.path.startsWith('/tasks/')) {
+        // Extract board ID from path
+        const boardId = req.path.split('/')[2];
+        if (boardId === "mock-board-id-1") {
+          // Return mock tasks for the mock board
+          return res.json([
+            {
+              _id: "mock-task-1",
+              title: "Mock Task 1",
+              description: "This is a mock task created because the database is unavailable",
+              boardId: "mock-board-id-1",
+              columnId: "column-1",
+              isShared: true,
+              color: "blue",
+              priority: "medium",
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString()
+            },
+            {
+              _id: "mock-task-2",
+              title: "Mock Task 2",
+              description: "This is a mock task created because the database is unavailable",
+              boardId: "mock-board-id-1",
+              columnId: "column-1",
+              isShared: true,
+              color: "green",
+              priority: "low",
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString()
+            },
+            {
+              _id: "mock-task-3",
+              title: "Mock Task 3",
+              description: "This is a mock task created because the database is unavailable",
+              boardId: "mock-board-id-1",
+              columnId: "column-2",
+              isShared: true,
+              color: "red",
+              priority: "high",
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString()
+            }
+          ]);
+        } else {
+          return res.json([]);
+        }
+      }
+    } else if (req.method === 'POST') {
+      // Handle POST requests to create resources
+      if (req.path === '/boards') {
+        const mockBoard = {
+          ...req.body,
+          _id: `mock-board-id-${Date.now()}`,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+        return res.status(201).json(mockBoard);
+      } else if (req.path === '/tasks') {
+        const mockTask = {
+          ...req.body,
+          _id: `mock-task-id-${Date.now()}`,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+        return res.status(201).json(mockTask);
+      }
+    }
+  }
+  
+  next();
+});
+
+// Add detailed request logging middleware for diagnostics
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  next();
+});
+
 // Routes - we're using the routes as they are now defined with full paths
 app.use(boardRoutes);
 app.use(taskRoutes);
 
-// Connect to MongoDB
-mongoose.connect(process.env.MONGODB_URI || config.mongoURI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-})
-  .then(() => console.log('MongoDB connected'))
+// Connect to MongoDB with detailed logging
+console.log('Attempting to connect to MongoDB...');
+console.log('Environment:', process.env.NODE_ENV || 'development');
+
+// Check MongoDB URI format
+const mongoUri = process.env.MONGODB_URI || config.mongoURI;
+if (!mongoUri) {
+  console.error('CRITICAL ERROR: No MongoDB URI available');
+} else {
+  // Only log format, not actual credentials
+  const uriPattern = /mongodb(\+srv)?:\/\/([^:]+)(:.+)?@([^/]+)\/([^?]+)(\?.+)?/;
+  const match = mongoUri.match(uriPattern);
+  
+  if (match) {
+    console.log('MongoDB URI format looks valid:');
+    console.log('- Protocol:', match[1] ? 'mongodb+srv' : 'mongodb');
+    console.log('- Username:', match[2]);
+    console.log('- Password:', match[3] ? '[PROVIDED]' : '[NOT PROVIDED]');
+    console.log('- Host:', match[4]);
+    console.log('- Database:', match[5]);
+    console.log('- Options:', match[6] ? '[PROVIDED]' : '[NOT PROVIDED]');
+  } else {
+    console.error('WARNING: MongoDB URI does not match expected format!');
+  }
+}
+
+// Create a more resilient MongoDB connection with retries
+let retryCount = 0;
+const MAX_RETRIES = 3;
+
+function connectWithRetry() {
+  console.log(`MongoDB connection attempt ${retryCount + 1}/${MAX_RETRIES + 1}`);
+  
+  mongoose.connect(mongoUri, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+    serverSelectionTimeoutMS: 5000,
+    socketTimeoutMS: 45000,
+    family: 4,
+    maxPoolSize: 10,
+    serverApi: {
+      version: '1',
+      strict: true,
+      deprecationErrors: true,
+    }
+  })
+  .then(() => {
+    console.log('MongoDB connected successfully');
+    try {
+      const { host, port, name } = mongoose.connection;
+      console.log(`Connected to database: ${name} at ${host}:${port || 'default'}`);
+    } catch (error) {
+      console.log('Could not extract full connection details, but connection is established');
+    }
+    
+    // Test a simple query to verify connection
+    mongoose.connection.db.admin().ping()
+      .then(() => console.log('MongoDB ping successful'))
+      .catch(err => console.error('MongoDB ping failed:', err.message));
+  })
   .catch(err => {
-    console.error('MongoDB connection error:', err);
-    // Don't exit the process in production, just log the error
-    if (process.env.NODE_ENV !== 'production') {
-      console.error('Exiting due to MongoDB connection failure');
-      process.exit(1);
+    console.error(`MongoDB connection error (attempt ${retryCount + 1}):`, err.message);
+    
+    // Try to provide more specific error guidance
+    if (err.message.includes('Authentication failed')) {
+      console.error('AUTHENTICATION FAILED: Check your username and password in the MongoDB URI');
+    } else if (err.message.includes('getaddrinfo ENOTFOUND')) {
+      console.error('HOST NOT FOUND: Check the cluster address in your MongoDB URI');
+    } else if (err.message.includes('connection timed out')) {
+      console.error('CONNECTION TIMEOUT: Your MongoDB Atlas IP access list might need to be updated');
+    }
+    
+    retryCount++;
+    if (retryCount < MAX_RETRIES) {
+      // Exponential backoff for retries
+      const retryDelay = Math.pow(2, retryCount) * 1000;
+      console.log(`Retrying in ${retryDelay}ms...`);
+      setTimeout(connectWithRetry, retryDelay);
     } else {
-      console.error('Running in production mode without database connection');
+      console.error('Max MongoDB connection retries reached. Operating in offline mode.');
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('In development mode, exiting application');
+        process.exit(1);
+      }
     }
   });
+}
+
+// Start connection process with a small delay to allow environment to initialize
+setTimeout(connectWithRetry, 1000);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

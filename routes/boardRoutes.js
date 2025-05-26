@@ -8,11 +8,35 @@ const { requireAuth } = require('../middleware/auth');
 // Get all boards (shared, no authentication required)
 router.get('/boards', async (req, res) => {
   try {
+    console.log('GET /boards request received');
+    
+    // Check MongoDB connection state
+    const connectionState = mongoose.connection.readyState;
+    console.log('MongoDB connection state:', connectionState);
+    // 0 = disconnected, 1 = connected, 2 = connecting, 3 = disconnecting
+    
+    if (connectionState !== 1) {
+      console.error('MongoDB not connected when trying to fetch boards');
+      return res.status(500).json({ 
+        error: 'Database connection issue', 
+        state: connectionState 
+      });
+    }
+    
+    // Try to execute the query
+    console.log('Attempting to fetch boards from MongoDB');
     const boards = await Board.find();
+    console.log(`Successfully fetched ${boards.length} boards`);
+    
     res.json(boards);
   } catch (err) {
     console.error('Error fetching boards:', err);
-    res.status(500).json({ error: 'Server error' });
+    // Return more detailed error info
+    res.status(500).json({ 
+      error: 'Server error', 
+      message: err.message,
+      stack: process.env.NODE_ENV === 'production' ? undefined : err.stack
+    });
   }
 });
 
