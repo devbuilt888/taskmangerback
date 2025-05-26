@@ -13,7 +13,10 @@ const TaskSchema = new mongoose.Schema({
   boardId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Board',
-    required: true
+    required: true,
+    get: v => v.toString(),
+    set: v => (typeof v === 'string' && mongoose.Types.ObjectId.isValid(v)) ? 
+             mongoose.Types.ObjectId(v) : v
   },
   columnId: {
     type: String,
@@ -43,6 +46,9 @@ const TaskSchema = new mongoose.Schema({
     type: Date,
     default: Date.now
   }
+}, {
+  toJSON: { getters: true },
+  toObject: { getters: true }
 });
 
 // Update the updatedAt timestamp before saving

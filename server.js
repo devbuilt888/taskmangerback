@@ -51,7 +51,27 @@ app.options('*', cors(corsOptions));
 app.use(customCors);
 
 // Middleware
-app.use(express.json());
+app.use(express.json({
+  limit: '10mb',
+  verify: (req, res, buf) => {
+    try {
+      JSON.parse(buf);
+    } catch (e) {
+      res.status(400).json({ error: 'Invalid JSON' });
+      throw new Error('Invalid JSON');
+    }
+  }
+}));
+
+// Add request body logging in development
+if (process.env.NODE_ENV !== 'production') {
+  app.use((req, res, next) => {
+    if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
+      console.log(`Request body for ${req.method} ${req.url}:`, JSON.stringify(req.body));
+    }
+    next();
+  });
+}
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -308,8 +328,37 @@ setTimeout(connectWithRetry, 1000);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({ error: 'Server error' });
+  console.error('Error handling request:', err.stack);
+  
+  // Handle Mongoose validation errors
+  if (err.name === 'ValidationError') {
+    const validationErrors = {};
+    
+    // Extract validation error messages
+    for (const field in err.errors) {
+      validationErrors[field] = err.errors[field].message;
+    }
+    
+    return res.status(400).json({
+      error: 'Validation Error',
+      validationErrors
+    });
+  }
+  
+  // Handle Mongoose cast errors (invalid ObjectId, etc.)
+  if (err.name === 'CastError') {
+    return res.status(400).json({
+      error: 'Invalid Data Format',
+      message: `Invalid ${err.path}: ${err.value}`,
+      details: err.message
+    });
+  }
+  
+  // Generic error response
+  res.status(500).json({ 
+    error: 'Server error',
+    message: process.env.NODE_ENV === 'production' ? 'An unexpected error occurred' : err.message
+  });
 });
 
 // Start the server in non-production environments

@@ -43,20 +43,38 @@ router.get('/boards', async (req, res) => {
 // Get a specific board
 router.get('/boards/:id', async (req, res) => {
   try {
+    console.log('GET /boards/:id request received for ID:', req.params.id);
+    
+    // Check if id is a valid ObjectId
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      console.error('Invalid board ID format:', req.params.id);
+      return res.status(400).json({ error: 'Invalid board ID format' });
+    }
+    
     const board = await Board.findById(req.params.id);
     if (!board) {
+      console.error('Board not found with ID:', req.params.id);
       return res.status(404).json({ error: 'Board not found' });
     }
+    
+    console.log('Board found:', board._id);
     res.json(board);
   } catch (err) {
     console.error('Error fetching board:', err);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ 
+      error: 'Server error',
+      message: err.message,
+      stack: process.env.NODE_ENV === 'production' ? undefined : err.stack
+    });
   }
 });
 
 // Create a new board
 router.post('/boards', requireAuth.optional, async (req, res) => {
   try {
+    console.log('POST /boards request received');
+    console.log('Request body:', JSON.stringify(req.body));
+    
     // Ensure the board is marked as shared
     const boardData = {
       ...req.body,
@@ -64,20 +82,52 @@ router.post('/boards', requireAuth.optional, async (req, res) => {
     };
     
     // Initialize with default columns if not provided
-    if (!boardData.columns) {
+    if (!boardData.columns || !boardData.columns.length) {
+      console.log('No columns provided, using default columns');
       boardData.columns = [
         { id: 'column-1', title: 'To Do', taskIds: [] },
         { id: 'column-2', title: 'In Progress', taskIds: [] },
         { id: 'column-3', title: 'Done', taskIds: [] }
       ];
+    } else {
+      // Ensure column IDs are consistent
+      boardData.columns = boardData.columns.map((column, index) => {
+        // If ID is missing or invalid, generate a new one
+        if (!column.id || typeof column.id !== 'string') {
+          console.log(`Fixing missing/invalid column ID at index ${index}`);
+          column.id = `column-${index + 1}`;
+        }
+        
+        // Ensure title exists
+        if (!column.title) {
+          console.log(`Fixing missing column title at index ${index}`);
+          column.title = `Column ${index + 1}`;
+        }
+        
+        // Ensure taskIds is an array
+        if (!Array.isArray(column.taskIds)) {
+          console.log(`Initializing taskIds array for column at index ${index}`);
+          column.taskIds = [];
+        }
+        
+        return column;
+      });
     }
+    
+    console.log('Creating board with columns:', JSON.stringify(boardData.columns));
     
     const board = new Board(boardData);
     await board.save();
+    console.log('Board created successfully with ID:', board._id);
+    
     res.status(201).json(board);
   } catch (err) {
     console.error('Error creating board:', err);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ 
+      error: 'Server error', 
+      message: err.message,
+      stack: process.env.NODE_ENV === 'production' ? undefined : err.stack
+    });
   }
 });
 
