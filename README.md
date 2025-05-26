@@ -26,6 +26,9 @@ This is the backend server for the Task Manager application, built with Node.js,
 
    # Server Configuration
    PORT=5000
+   
+   # Frontend URL (for CORS)
+   FRONTEND_URL=http://localhost:3000
    ```
 
 3. Replace the placeholders with your actual MongoDB connection string and Clerk API key.
@@ -34,6 +37,54 @@ This is the backend server for the Task Manager application, built with Node.js,
    ```bash
    npm run dev
    ```
+
+## Deployment to Vercel
+
+This server can be deployed to Vercel as an API service for your frontend application.
+
+1. Push your repository to GitHub
+
+2. Connect to Vercel:
+   - Create an account on [Vercel](https://vercel.com) if you don't have one
+   - Create a new project and import your GitHub repository
+   - Select "Other" as the framework preset
+
+3. Configure the deployment:
+   - Set the following environment variables in the Vercel dashboard:
+     - `MONGODB_URI`: Your MongoDB connection string
+     - `CLERK_API_KEY`: Your Clerk API key
+     - `FRONTEND_URL`: The URL of your frontend application (for CORS)
+   - Deployment settings:
+     - Build Command: `npm install`
+     - Output Directory: Leave empty
+     - Install Command: `npm install`
+
+4. Deploy the project:
+   - Click "Deploy" and wait for the build to complete
+   - Vercel will provide you with a deployment URL (e.g., `https://your-project.vercel.app`)
+
+5. Update your frontend to use the new API URL:
+   - Set the API base URL in your frontend to your Vercel deployment URL
+   - Example: `https://your-project.vercel.app/api`
+
+## CORS Configuration
+
+This API includes comprehensive CORS configuration to allow requests from your frontend application. The following features are implemented:
+
+- **Allowed Origins**: By default, the API allows requests from:
+  - The URL specified in the `FRONTEND_URL` environment variable
+  - `http://localhost:3000` (common React development server)
+  - `http://localhost:5173` (common Vite development server)
+  - `https://task-manager-frontend.vercel.app`
+  - `https://bbglobalsolutions.org`
+
+- **Vercel Headers**: The `vercel.json` file includes CORS headers for serverless deployments
+
+- **Custom CORS Middleware**: A backup middleware ensures CORS headers are included in all responses, even error responses
+
+To configure CORS for your specific frontend:
+1. Set the `FRONTEND_URL` environment variable to your frontend's URL
+2. For additional origins, modify the `allowedOrigins` array in `middleware/cors.js` and `server.js`
 
 ## API Endpoints
 
@@ -53,10 +104,15 @@ This is the backend server for the Task Manager application, built with Node.js,
 - `PUT /api/boards/:id` - Update a board
 - `DELETE /api/boards/:id` - Delete a board and all its tasks
 
+### Health Checks
+
+- `GET /api/health` - Returns status "ok" with a message (for API health)
+- `GET /health` - Returns status "ok" with current timestamp (for server health)
+
 ## Authentication
 
 All endpoints require authentication via Clerk. Include the JWT token in the Authorization header:
 
 ```
 Authorization: Bearer your_jwt_token
-``` 
+```

@@ -1,5 +1,5 @@
 // MongoDB connection configuration
 module.exports = {
-  // Replace <password> with your actual password
-  MONGODB_URI: "mongodb+srv://vitomain8:<password>@cluster0.jysbn.mongodb.net/taskmanager?retryWrites=true&w=majority&appName=Cluster0"
+  // Default connection URI (will be overridden by environment variables)
+  MONGODB_URI: process.env.MONGODB_URI || "mongodb://localhost:27017/taskmanager"
 }; 
