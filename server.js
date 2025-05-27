@@ -6,6 +6,7 @@ const boardRoutes = require('./routes/boardRoutes');
 const taskRoutes = require('./routes/taskRoutes');
 const config = require('./config');
 const { customCors } = require('./middleware/cors');
+const { toObjectId, cleanObjectIdString } = require('./utils');
 
 // Initialize Express app
 const app = express();
@@ -694,46 +695,55 @@ app.post('/api/create-task', async (req, res) => {
       return res.status(400).json({ error: 'Board ID is required' });
     }
     
-    // Try to find the board, even with an imperfect ID
+    // Convert boardId to ObjectId using utility function
+    const boardObjectId = toObjectId(req.body.boardId);
+    
+    if (!boardObjectId) {
+      return res.status(400).json({
+        error: 'Invalid board ID format',
+        message: 'The provided board ID could not be converted to a valid MongoDB ObjectId',
+        providedId: req.body.boardId,
+        cleanedId: cleanObjectIdString(req.body.boardId)
+      });
+    }
+    
+    // Try to find the board with the valid ObjectId
     let board;
-    let boardId = req.body.boardId;
-    
-    // Try direct lookup first
-    if (mongoose.Types.ObjectId.isValid(boardId)) {
-      board = await mongoose.model('Board').findById(boardId);
+    try {
+      board = await mongoose.model('Board').findById(boardObjectId);
+    } catch (err) {
+      console.error('Error finding board:', err);
     }
     
-    // If not found, try cleaning the ID
-    if (!board && typeof boardId === 'string') {
-      const cleanedId = boardId.replace(/[^a-f0-9]/gi, '');
-      if (cleanedId.length === 24 && mongoose.Types.ObjectId.isValid(cleanedId)) {
-        board = await mongoose.model('Board').findById(cleanedId);
-        if (board) {
-          boardId = cleanedId;
-        }
-      }
-    }
-    
-    // If still not found, get the first board
+    // If not found, try to find any board
     if (!board) {
-      const boards = await mongoose.model('Board').find().limit(1);
-      if (boards.length > 0) {
-        board = boards[0];
-        boardId = board._id;
-      } else {
-        // Create a new board if none exist
-        const newBoard = new mongoose.model('Board')({
-          title: "Default Board",
-          description: "Automatically created board",
-          isShared: true,
-          columns: [
-            { id: "column-1", title: "To Do", taskIds: [] },
-            { id: "column-2", title: "In Progress", taskIds: [] },
-            { id: "column-3", title: "Done", taskIds: [] }
-          ]
+      console.log('Board not found with ID:', boardObjectId);
+      try {
+        const boards = await mongoose.model('Board').find().limit(1);
+        if (boards.length > 0) {
+          board = boards[0];
+          console.log('Using alternative board:', board._id);
+        } else {
+          // Create a new board if none exist
+          const newBoard = new mongoose.model('Board')({
+            title: "Default Board",
+            description: "Automatically created board",
+            isShared: true,
+            columns: [
+              { id: "column-1", title: "To Do", taskIds: [] },
+              { id: "column-2", title: "In Progress", taskIds: [] },
+              { id: "column-3", title: "Done", taskIds: [] }
+            ]
+          });
+          board = await newBoard.save();
+          console.log('Created new board:', board._id);
+        }
+      } catch (boardErr) {
+        console.error('Error finding/creating board:', boardErr);
+        return res.status(500).json({
+          error: 'Failed to find or create board',
+          message: boardErr.message
         });
-        board = await newBoard.save();
-        boardId = board._id;
       }
     }
     
@@ -743,11 +753,23 @@ app.post('/api/create-task', async (req, res) => {
       columnId = board.columns[0].id;
     }
     
-    // Create the task
+    // Use Board model's helper to find the appropriate column ID
+    // Default to 'todo' column if not specified
+    if (!columnId || columnId === 'todo') {
+      columnId = board.findColumnIdByType('todo') || board.columns[0].id;
+    } else if (columnId === 'in-progress') {
+      columnId = board.findColumnIdByType('in-progress') || board.columns[0].id;
+    } else if (columnId === 'done') {
+      columnId = board.findColumnIdByType('done') || board.columns[0].id;
+    }
+    
+    console.log(`Using column ID: ${columnId} for task creation`);
+    
+    // Create the task with the board's actual ID
     const taskData = {
       title: req.body.title || req.body.text,
       description: req.body.description || '',
-      boardId: boardId,
+      boardId: board._id, // Use the actual board ID from the found/created board
       columnId: columnId,
       color: req.body.color || 'blue',
       priority: req.body.priority || 'medium',
@@ -756,29 +778,54 @@ app.post('/api/create-task', async (req, res) => {
     
     const Task = mongoose.model('Task');
     const task = new Task(taskData);
-    const savedTask = await task.save();
     
-    // Update the board's column
-    await mongoose.model('Board').findByIdAndUpdate(
-      boardId,
-      { 
-        $push: { 
-          'columns.$[elem].taskIds': savedTask._id.toString() 
+    try {
+      const savedTask = await task.save();
+      
+      // Update the board's column
+      await mongoose.model('Board').findByIdAndUpdate(
+        board._id,
+        { 
+          $push: { 
+            'columns.$[elem].taskIds': savedTask._id.toString() 
+          },
+          updatedAt: Date.now()
         },
-        updatedAt: Date.now()
-      },
-      { 
-        arrayFilters: [{ 'elem.id': columnId }],
-        new: true 
+        { 
+          arrayFilters: [{ 'elem.id': columnId }],
+          new: true 
+        }
+      );
+      
+      res.status(201).json({
+        success: true,
+        task: savedTask,
+        boardId: board._id.toString(),
+        message: 'Task created successfully'
+      });
+    } catch (taskErr) {
+      console.error('Error saving task:', taskErr);
+      
+      // Special handling for validation errors
+      if (taskErr.name === 'ValidationError') {
+        return res.status(400).json({
+          error: 'Task validation failed',
+          message: taskErr.message,
+          validationErrors: Object.keys(taskErr.errors).reduce((acc, key) => {
+            acc[key] = taskErr.errors[key].message;
+            return acc;
+          }, {}),
+          originalRequest: req.body
+        });
       }
-    );
-    
-    res.status(201).json({
-      success: true,
-      task: savedTask,
-      boardId: boardId.toString(),
-      message: 'Task created successfully'
-    });
+      
+      // If it's not a validation error, return a generic error
+      res.status(500).json({
+        error: 'Failed to create task',
+        message: taskErr.message,
+        originalRequest: req.body
+      });
+    }
   } catch (err) {
     console.error('Error in resilient task creation:', err);
     res.status(500).json({
