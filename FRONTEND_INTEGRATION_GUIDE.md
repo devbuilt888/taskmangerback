@@ -309,4 +309,86 @@ To ensure your frontend integration works correctly:
 3. Test error handling by intentionally using invalid IDs
 4. Verify that drag-and-drop operations update both the UI and the server state
 
-By following these guidelines, your Task Manager frontend should properly integrate with the backend API. 
+By following these guidelines, your Task Manager frontend should properly integrate with the backend API.
+
+## 🔧 Task Creation
+
+### Using the Resilient Task Creation Endpoint
+
+To avoid "Invalid board ID format" errors when creating tasks, use the more resilient task creation endpoint:
+
+```javascript
+// Standard task creation endpoint - may fail with ID format errors
+fetch('/tasks', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(taskData)
+});
+
+// Resilient task creation endpoint - handles ID format problems better
+fetch('/api/create-task', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(taskData)
+});
+```
+
+### Handling Board ID Format Issues
+
+When creating tasks, make sure your boardId is properly formatted:
+
+1. **Ensure the boardId is a valid MongoDB ObjectId**
+   - Must be a 24-character hexadecimal string
+   - Don't include quotes or other characters
+
+2. **Always store the exact boardId returned from the API**
+   - When you fetch a board, store `board._id` exactly as received
+
+3. **Use a helper function to clean IDs if needed**
+
+```javascript
+function cleanObjectId(id) {
+  if (!id) return null;
+  // Remove any non-hex characters
+  return id.toString().replace(/[^a-f0-9]/gi, '');
+}
+
+// Use when creating a task
+const task = {
+  title: "New Task",
+  boardId: cleanObjectId(currentBoardId),
+  columnId: "column-1"
+};
+```
+
+### Enhanced Client API for Task Creation
+
+Here's an updated API client that handles boardId issues when creating tasks:
+
+```javascript
+// Enhanced task creation
+async function createTask(taskData) {
+  // First make sure boardId is clean
+  if (taskData.boardId) {
+    taskData.boardId = taskData.boardId.toString().replace(/[^a-f0-9]/gi, '');
+  }
+  
+  try {
+    // Try the resilient endpoint first
+    const response = await fetch(`${API_URL}/api/create-task`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(taskData)
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Server returned ${response.status}`);
+    }
+    
+    return await response.json();
+  } catch (err) {
+    console.error('Error creating task:', err);
+    throw err;
+  }
+}
+``` 

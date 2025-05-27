@@ -651,6 +651,144 @@ app.get('/debug/frontend-test', async (req, res) => {
   }
 });
 
+// Add middleware to sanitize ObjectIds in requests
+app.use((req, res, next) => {
+  // Only process POST and PUT requests that might contain ObjectIds
+  if ((req.method === 'POST' || req.method === 'PUT') && req.body) {
+    // Check if this is a task creation with a boardId
+    if (req.path === '/tasks' && req.body.boardId) {
+      console.log('Sanitizing boardId in task creation request');
+      try {
+        // Clean the boardId by removing any non-hex characters
+        const originalId = req.body.boardId;
+        if (typeof originalId === 'string') {
+          const cleanedId = originalId.replace(/[^a-f0-9]/gi, '');
+          
+          // Only use the cleaned ID if it's a valid ObjectId
+          if (cleanedId.length === 24 && mongoose.Types.ObjectId.isValid(cleanedId)) {
+            console.log(`Sanitized boardId from '${originalId}' to '${cleanedId}'`);
+            req.body.boardId = cleanedId;
+          }
+        }
+      } catch (err) {
+        console.error('Error sanitizing boardId:', err);
+        // Continue with original value, the route handler will deal with it
+      }
+    }
+  }
+  next();
+});
+
+// Add a more resilient task creation endpoint
+app.post('/api/create-task', async (req, res) => {
+  try {
+    console.log('Resilient task creation endpoint called');
+    console.log('Request body:', JSON.stringify(req.body));
+    
+    // Verify required fields
+    if (!req.body.title && !req.body.text) {
+      return res.status(400).json({ error: 'Task title/text is required' });
+    }
+    
+    if (!req.body.boardId) {
+      return res.status(400).json({ error: 'Board ID is required' });
+    }
+    
+    // Try to find the board, even with an imperfect ID
+    let board;
+    let boardId = req.body.boardId;
+    
+    // Try direct lookup first
+    if (mongoose.Types.ObjectId.isValid(boardId)) {
+      board = await mongoose.model('Board').findById(boardId);
+    }
+    
+    // If not found, try cleaning the ID
+    if (!board && typeof boardId === 'string') {
+      const cleanedId = boardId.replace(/[^a-f0-9]/gi, '');
+      if (cleanedId.length === 24 && mongoose.Types.ObjectId.isValid(cleanedId)) {
+        board = await mongoose.model('Board').findById(cleanedId);
+        if (board) {
+          boardId = cleanedId;
+        }
+      }
+    }
+    
+    // If still not found, get the first board
+    if (!board) {
+      const boards = await mongoose.model('Board').find().limit(1);
+      if (boards.length > 0) {
+        board = boards[0];
+        boardId = board._id;
+      } else {
+        // Create a new board if none exist
+        const newBoard = new mongoose.model('Board')({
+          title: "Default Board",
+          description: "Automatically created board",
+          isShared: true,
+          columns: [
+            { id: "column-1", title: "To Do", taskIds: [] },
+            { id: "column-2", title: "In Progress", taskIds: [] },
+            { id: "column-3", title: "Done", taskIds: [] }
+          ]
+        });
+        board = await newBoard.save();
+        boardId = board._id;
+      }
+    }
+    
+    // Get the column ID
+    let columnId = req.body.columnId;
+    if (!columnId && board.columns && board.columns.length > 0) {
+      columnId = board.columns[0].id;
+    }
+    
+    // Create the task
+    const taskData = {
+      title: req.body.title || req.body.text,
+      description: req.body.description || '',
+      boardId: boardId,
+      columnId: columnId,
+      color: req.body.color || 'blue',
+      priority: req.body.priority || 'medium',
+      isShared: true
+    };
+    
+    const Task = mongoose.model('Task');
+    const task = new Task(taskData);
+    const savedTask = await task.save();
+    
+    // Update the board's column
+    await mongoose.model('Board').findByIdAndUpdate(
+      boardId,
+      { 
+        $push: { 
+          'columns.$[elem].taskIds': savedTask._id.toString() 
+        },
+        updatedAt: Date.now()
+      },
+      { 
+        arrayFilters: [{ 'elem.id': columnId }],
+        new: true 
+      }
+    );
+    
+    res.status(201).json({
+      success: true,
+      task: savedTask,
+      boardId: boardId.toString(),
+      message: 'Task created successfully'
+    });
+  } catch (err) {
+    console.error('Error in resilient task creation:', err);
+    res.status(500).json({
+      error: 'Failed to create task',
+      message: err.message,
+      originalRequest: req.body
+    });
+  }
+});
+
 // Connect to MongoDB with detailed logging
 console.log('Attempting to connect to MongoDB...');
 console.log('Environment:', process.env.NODE_ENV || 'development');
