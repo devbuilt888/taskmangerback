@@ -564,6 +564,93 @@ app.get('/api/boards/:boardId', (req, res) => {
   res.redirect(`/boards/${req.params.boardId}`);
 });
 
+// Add a debug endpoint specifically for troubleshooting the frontend integration
+app.get('/debug/frontend-test', async (req, res) => {
+  try {
+    const response = {
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      dbConnected: mongoose.connection.readyState === 1,
+      environmentChecks: {
+        nodeEnv: process.env.NODE_ENV || 'not set',
+        corsEnabled: true,
+        vercelDeployment: process.env.VERCEL === '1'
+      },
+      test: {
+        emptyArray: [],
+        sampleArray: [
+          { id: 1, name: 'Test 1' },
+          { id: 2, name: 'Test 2' }
+        ],
+        emptyObject: {},
+        sampleObject: { id: 1, name: 'Test Object' }
+      }
+    };
+    
+    // Check for specific query parameter to test frontend behavior
+    if (req.query.testType === 'boardTasks') {
+      // Return sample board with tasks for testing frontend rendering
+      return res.json({
+        board: {
+          _id: "test-board-id",
+          title: "Test Board",
+          description: "This is a test board for frontend debugging",
+          isShared: true,
+          columns: [
+            { id: "column-1", title: "To Do", taskIds: ["task-1", "task-2"] },
+            { id: "column-2", title: "In Progress", taskIds: ["task-3"] },
+            { id: "column-3", title: "Done", taskIds: [] }
+          ],
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        },
+        tasks: [
+          {
+            _id: "task-1",
+            title: "Test Task 1",
+            description: "This is test task 1",
+            boardId: "test-board-id",
+            columnId: "column-1",
+            isShared: true,
+            color: "blue",
+            priority: "medium",
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          },
+          {
+            _id: "task-2",
+            title: "Test Task 2",
+            description: "This is test task 2",
+            boardId: "test-board-id",
+            columnId: "column-1",
+            isShared: true,
+            color: "green",
+            priority: "low",
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          },
+          {
+            _id: "task-3",
+            title: "Test Task 3",
+            description: "This is test task 3",
+            boardId: "test-board-id",
+            columnId: "column-2",
+            isShared: true,
+            color: "red",
+            priority: "high",
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          }
+        ]
+      });
+    }
+    
+    res.json(response);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Connect to MongoDB with detailed logging
 console.log('Attempting to connect to MongoDB...');
 console.log('Environment:', process.env.NODE_ENV || 'development');

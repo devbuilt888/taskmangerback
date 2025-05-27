@@ -13,6 +13,7 @@ router.get('/tasks/board/:boardId', async (req, res) => {
     if (!mongoose.Types.ObjectId.isValid(req.params.boardId)) {
       console.error('Invalid board ID format:', req.params.boardId);
       // Return empty array instead of error for easier frontend handling
+      console.log('Returning empty array for invalid board ID');
       return res.json([]);
     }
     
@@ -35,11 +36,13 @@ router.get('/tasks/board/:boardId', async (req, res) => {
     
     // Debug: If no tasks found, query to see what boardIds exist
     if (tasks.length === 0) {
-      console.log('No tasks found. Checking for any tasks in database...');
-      const allTasks = await Task.find({}).limit(5);
-      console.log('Sample of tasks in database:', 
-        allTasks.map(t => ({ id: t._id.toString(), boardId: t.boardId.toString() }))
-      );
+      console.log('No tasks found for board. Returning empty array.');
+    }
+    
+    // Double-check that tasks is actually an array before returning
+    if (!Array.isArray(tasks)) {
+      console.error('Tasks result is not an array! Converting to empty array for frontend compatibility');
+      return res.json([]);
     }
     
     // Always return the tasks array, even if empty
@@ -47,6 +50,7 @@ router.get('/tasks/board/:boardId', async (req, res) => {
   } catch (err) {
     console.error('Error fetching tasks for board:', err);
     // Return empty array in case of error for more resilient frontend
+    console.log('Error occurred, returning empty array');
     res.json([]);
   }
 });
