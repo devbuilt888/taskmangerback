@@ -118,6 +118,24 @@
     </div>
   </div>
   
+  <div class="card">
+    <h2>Get Board with Tasks</h2>
+    <div>
+      <label for="boardIdWithTasks">Board ID:</label>
+      <input type="text" id="boardIdWithTasks" placeholder="Enter Board ID">
+      <button id="getBoardWithTasksBtn">Get Board with Tasks</button>
+    </div>
+  </div>
+  
+  <div class="card">
+    <h2>Get Enhanced Tasks</h2>
+    <div>
+      <label for="boardIdForEnhancedTasks">Board ID:</label>
+      <input type="text" id="boardIdForEnhancedTasks" placeholder="Enter Board ID">
+      <button id="getEnhancedTasksBtn">Get Enhanced Tasks</button>
+    </div>
+  </div>
+  
   <div id="output"></div>
   
   <script src="/js/apiUtils.js"></script>
@@ -180,6 +198,63 @@
         showOutput('Tasks Result', {
           count: tasks.length,
           tasks: tasks.slice(0, 3) // Show only first 3 for brevity
+        });
+      } catch (error) {
+        showOutput('Error', { message: error.message });
+      }
+    });
+    
+    // Handle getting board with tasks
+    document.getElementById('getBoardWithTasksBtn').addEventListener('click', async () => {
+      const boardId = document.getElementById('boardIdWithTasks').value;
+      
+      try {
+        showOutput('Getting board with tasks...', {
+          boardId: boardId,
+          cleanedBoardId: TaskManagerUtils.cleanMongoId(boardId)
+        });
+        
+        const result = await TaskManagerUtils.getBoardWithTasks(boardId);
+        
+        if (result.board) {
+          showOutput('Board with Tasks Result', {
+            boardId: result.board._id,
+            title: result.board.title,
+            taskCount: result.taskCount,
+            columns: result.board.columns.map(col => ({
+              id: col.id,
+              title: col.title,
+              taskCount: col.tasks ? col.tasks.length : 0
+            }))
+          });
+        } else {
+          showOutput('Board with Tasks Result', { error: 'Board not found' });
+        }
+      } catch (error) {
+        showOutput('Error', { message: error.message });
+      }
+    });
+    
+    // Handle getting enhanced tasks
+    document.getElementById('getEnhancedTasksBtn').addEventListener('click', async () => {
+      const boardId = document.getElementById('boardIdForEnhancedTasks').value;
+      
+      try {
+        showOutput('Getting enhanced tasks...', {
+          boardId: boardId,
+          cleanedBoardId: TaskManagerUtils.cleanMongoId(boardId)
+        });
+        
+        const tasks = await TaskManagerUtils.getEnhancedTasksForBoard(boardId);
+        
+        showOutput('Enhanced Tasks Result', {
+          count: tasks.length,
+          tasks: tasks.slice(0, 3).map(task => ({
+            _id: task._id,
+            title: task.title,
+            color: task.color,
+            columnId: task.columnId
+          }))
         });
       } catch (error) {
         showOutput('Error', { message: error.message });

@@ -96,11 +96,52 @@ async function getBoardTasksSafely(boardId, apiBaseUrl = '') {
   }
 }
 
+/**
+ * Get a board with all its tasks in a single request
+ * @param {string} boardId - The board ID
+ * @param {string} apiBaseUrl - The base URL for the API
+ * @returns {Promise<Object>} - The board with its tasks
+ */
+async function getBoardWithTasks(boardId, apiBaseUrl = '') {
+  const cleanId = cleanMongoId(boardId);
+  
+  try {
+    const response = await fetch(`${apiBaseUrl}/api/board-with-tasks/${cleanId}`);
+    return await response.json();
+  } catch (error) {
+    console.error('Error fetching board with tasks:', error);
+    return { board: null, taskCount: 0 };
+  }
+}
+
+/**
+ * Get enhanced tasks for a board (with all details)
+ * @param {string} boardId - The board ID
+ * @param {string} apiBaseUrl - The base URL for the API
+ * @returns {Promise<Array>} - The enhanced tasks for the board
+ */
+async function getEnhancedTasksForBoard(boardId, apiBaseUrl = '') {
+  const cleanId = cleanMongoId(boardId);
+  
+  try {
+    const response = await fetch(`${apiBaseUrl}/api/enhanced-tasks/${cleanId}`);
+    const data = await response.json();
+    
+    // Always ensure we return an array
+    return Array.isArray(data) ? data : [];
+  } catch (error) {
+    console.error('Error fetching enhanced tasks:', error);
+    return [];
+  }
+}
+
 // Export the utilities for use in other scripts
 window.TaskManagerUtils = {
   cleanMongoId,
   isValidMongoId,
   prepareBoardId,
   createTaskSafely,
-  getBoardTasksSafely
+  getBoardTasksSafely,
+  getBoardWithTasks,
+  getEnhancedTasksForBoard
 }; 

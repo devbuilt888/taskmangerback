@@ -833,9 +833,36 @@ app.post('/api/simple-create-task', async (req, res) => {
       boardId: boardId.toString()
     };
     
+    // Fetch the updated board to get all the latest data
+    const updatedBoard = await boardsCollection.findOne({ _id: boardId });
+    
+    // Format the updated board data for the response
+    const formattedBoard = updatedBoard ? {
+      ...updatedBoard,
+      _id: updatedBoard._id.toString(),
+      // Add task info to each taskId in the board's columns
+      columns: updatedBoard.columns.map(column => ({
+        ...column,
+        // For each taskId, add task metadata if it matches our newly created task
+        taskMetadata: column.taskIds.map(taskId => {
+          if (taskId === responseTask._id) {
+            return {
+              id: taskId,
+              title: responseTask.title,
+              color: responseTask.color,
+              priority: responseTask.priority,
+              description: responseTask.description
+            };
+          }
+          return { id: taskId };
+        })
+      }))
+    } : null;
+    
     res.status(201).json({
       success: true,
       task: responseTask,
+      board: formattedBoard,
       message: 'Task created successfully'
     });
   } catch (err) {
@@ -845,6 +872,189 @@ app.post('/api/simple-create-task', async (req, res) => {
       message: err.message,
       originalRequest: req.body
     });
+  }
+});
+
+// Add an endpoint to get a board with all its tasks
+app.get('/api/board-with-tasks/:boardId', async (req, res) => {
+  try {
+    console.log('Getting board with tasks for ID:', req.params.boardId);
+    
+    if (!req.params.boardId) {
+      return res.status(400).json({ error: 'Board ID is required' });
+    }
+    
+    // Get raw MongoDB collections directly
+    const db = mongoose.connection.db;
+    const boardsCollection = db.collection('boards');
+    const tasksCollection = db.collection('tasks');
+    
+    // Try to find the board using native MongoDB driver
+    let boardId;
+    try {
+      // Clean the board ID (remove any non-hex characters)
+      const rawBoardId = req.params.boardId.toString().replace(/[^0-9a-f]/gi, '');
+      if (rawBoardId.length !== 24) {
+        return res.status(400).json({ 
+          error: 'Invalid board ID format',
+          details: 'Board ID must be a 24-character hex string'
+        });
+      }
+      
+      // Create a proper MongoDB ObjectId
+      boardId = new mongoose.Types.ObjectId(rawBoardId);
+    } catch (err) {
+      console.error('Error with board ID:', err);
+      return res.status(400).json({ 
+        error: 'Invalid board ID', 
+        details: err.message
+      });
+    }
+    
+    // Check if board exists using native MongoDB driver
+    const board = await boardsCollection.findOne({ _id: boardId });
+    if (!board) {
+      return res.status(404).json({ error: 'Board not found' });
+    }
+    
+    // Get all taskIds from all columns
+    const allTaskIds = [];
+    if (board.columns) {
+      board.columns.forEach(column => {
+        if (column.taskIds && Array.isArray(column.taskIds)) {
+          allTaskIds.push(...column.taskIds);
+        }
+      });
+    }
+    
+    // Convert string taskIds to ObjectIds for querying
+    const taskObjectIds = allTaskIds
+      .filter(id => id && id.length === 24)
+      .map(id => {
+        try {
+          return new mongoose.Types.ObjectId(id);
+        } catch (err) {
+          console.error('Invalid task ID:', id);
+          return null;
+        }
+      })
+      .filter(id => id !== null);
+    
+    // Fetch all tasks for this board in a single query
+    const tasks = taskObjectIds.length > 0 
+      ? await tasksCollection.find({ _id: { $in: taskObjectIds } }).toArray()
+      : [];
+    
+    // Create a map of taskId -> task for efficient lookup
+    const taskMap = {};
+    tasks.forEach(task => {
+      taskMap[task._id.toString()] = {
+        _id: task._id.toString(),
+        title: task.title,
+        description: task.description || '',
+        color: task.color || 'blue',
+        priority: task.priority || 'medium',
+        columnId: task.columnId
+      };
+    });
+    
+    // Add task data to each column
+    const enhancedColumns = board.columns.map(column => {
+      const enhancedTaskIds = column.taskIds.map(taskId => {
+        // If we have data for this task, include it
+        return taskMap[taskId] || { id: taskId };
+      });
+      
+      return {
+        ...column,
+        id: column.id,
+        title: column.title,
+        tasks: enhancedTaskIds
+      };
+    });
+    
+    // Create the enhanced board response
+    const enhancedBoard = {
+      _id: board._id.toString(),
+      title: board.title,
+      description: board.description || '',
+      isShared: board.isShared,
+      columns: enhancedColumns,
+      createdAt: board.createdAt,
+      updatedAt: board.updatedAt
+    };
+    
+    res.json({
+      board: enhancedBoard,
+      taskCount: tasks.length
+    });
+    
+  } catch (err) {
+    console.error('Error getting board with tasks:', err);
+    res.status(500).json({
+      error: 'Failed to get board with tasks',
+      message: err.message
+    });
+  }
+});
+
+// Add a direct endpoint for getting enhanced tasks for a board
+app.get('/api/enhanced-tasks/:boardId', async (req, res) => {
+  try {
+    console.log('Getting enhanced tasks for board ID:', req.params.boardId);
+    
+    if (!req.params.boardId) {
+      return res.status(400).json({ error: 'Board ID is required' });
+    }
+    
+    // If database is not connected, return empty array
+    if (mongoose.connection.readyState !== 1) {
+      console.log('Database not connected, returning empty array');
+      return res.json([]);
+    }
+    
+    // Get raw MongoDB collections directly
+    const db = mongoose.connection.db;
+    const tasksCollection = db.collection('tasks');
+    
+    // Clean and validate the board ID
+    let boardId;
+    try {
+      // Clean the board ID (remove any non-hex characters)
+      const rawBoardId = req.params.boardId.toString().replace(/[^0-9a-f]/gi, '');
+      if (rawBoardId.length !== 24) {
+        return res.json([]); // Return empty array for invalid ID format
+      }
+      
+      // Create a proper MongoDB ObjectId
+      boardId = new mongoose.Types.ObjectId(rawBoardId);
+    } catch (err) {
+      console.error('Error with board ID:', err);
+      return res.json([]); // Return empty array for any error
+    }
+    
+    // Fetch all tasks for this board
+    const tasks = await tasksCollection.find({ boardId: boardId }).toArray();
+    
+    // Format tasks for response
+    const formattedTasks = tasks.map(task => ({
+      _id: task._id.toString(),
+      title: task.title,
+      description: task.description || '',
+      boardId: task.boardId.toString(),
+      columnId: task.columnId,
+      color: task.color || 'blue',
+      priority: task.priority || 'medium',
+      isShared: task.isShared !== false, // Default to true if undefined
+      createdAt: task.createdAt,
+      updatedAt: task.updatedAt
+    }));
+    
+    res.json(formattedTasks);
+  } catch (err) {
+    console.error('Error getting enhanced tasks:', err);
+    // Return empty array on error rather than error status
+    res.json([]);
   }
 });
 
