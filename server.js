@@ -152,6 +152,161 @@ app.get('/debug/tasks', async (req, res) => {
   }
 });
 
+// Add compatibility middleware for frontend issues with tasks - IMPORTANT: This must be before routes
+app.use((req, res, next) => {
+  // If the URL starts with /tasks/ but is not /tasks/board/
+  if (req.path.startsWith('/tasks/') && !req.path.startsWith('/tasks/board/')) {
+    const pathParts = req.path.split('/');
+    if (pathParts.length >= 3) {
+      const possibleTaskId = pathParts[2];
+      
+      // Check if this is a valid MongoDB ObjectId
+      if (mongoose.Types.ObjectId.isValid(possibleTaskId)) {
+        // It's probably a legitimate task ID request, continue
+        next();
+      } else {
+        // It might be a board ID or other identifier, redirect to board tasks
+        console.log('Unrecognized task path format, assuming board ID:', req.path);
+        res.redirect(`/tasks/board/${possibleTaskId}`);
+      }
+    } else {
+      next();
+    }
+  } else {
+    next();
+  }
+});
+
+// Add fallback for missing tasks - this must come before route registration
+app.use((req, res, next) => {
+  // This captures any remaining /tasks/board/{id} requests
+  const boardTasksRegex = /^\/tasks\/board\/([^\/]+)\/?$/;
+  const match = req.path.match(boardTasksRegex);
+  
+  if (match && req.method === 'GET') {
+    const boardId = match[1];
+    // Here we process the request for tasks by board ID
+    console.log('Custom fallback handling tasks for board:', boardId);
+    
+    // We'll skip normal route handling and return an empty array 
+    // to prevent 404 errors when no tasks exist
+    if (req.query.fallback === 'true' || req.get('X-Handle-Empty') === 'true') {
+      console.log('Returning empty array via fallback middleware');
+      return res.json([]);
+    }
+  }
+  
+  next();
+});
+
+// Add detailed request logging middleware for diagnostics
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  next();
+});
+
+// Routes - we're using the routes as they are now defined with full paths
+// IMPORTANT: Register routes after all middleware
+app.use(boardRoutes);
+app.use(taskRoutes);
+
+// Add a monitoring endpoint for database stats
+app.get('/monitor/db-stats', async (req, res) => {
+  try {
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(200).json({ 
+        connected: false,
+        message: 'Database not connected',
+        readyState: mongoose.connection.readyState
+      });
+    }
+    
+    // Get collection stats
+    const stats = {};
+    try {
+      stats.tasks = await mongoose.connection.db.collection('tasks').stats();
+      stats.boards = await mongoose.connection.db.collection('boards').stats();
+    } catch (err) {
+      stats.error = `Error getting collection stats: ${err.message}`;
+    }
+    
+    // Count documents
+    const counts = {};
+    try {
+      counts.tasks = await mongoose.connection.db.collection('tasks').countDocuments();
+      counts.boards = await mongoose.connection.db.collection('boards').countDocuments();
+    } catch (err) {
+      counts.error = `Error counting documents: ${err.message}`;
+    }
+    
+    res.status(200).json({
+      connected: true,
+      readyState: mongoose.connection.readyState,
+      database: mongoose.connection.db.databaseName,
+      collectionStats: stats,
+      documentCounts: counts
+    });
+  } catch (err) {
+    res.status(200).json({
+      connected: false,
+      error: err.message
+    });
+  }
+});
+
+// Add API version and collections info endpoint
+app.get('/api/info', async (req, res) => {
+  try {
+    // Basic API info
+    const apiInfo = {
+      version: '1.0.0',
+      name: 'Task Manager API',
+      status: 'running',
+      timestamp: new Date().toISOString(),
+      environment: process.env.NODE_ENV || 'development',
+      dbConnection: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
+    };
+    
+    // If connected, get collection names
+    if (mongoose.connection.readyState === 1) {
+      try {
+        // Get the collection names
+        const collections = await mongoose.connection.db.listCollections().toArray();
+        apiInfo.collections = collections.map(c => c.name);
+        
+        // Get some sample data to verify collections exist and have correct format
+        if (collections.some(c => c.name === 'tasks')) {
+          const taskSample = await mongoose.connection.db.collection('tasks')
+            .find({})
+            .limit(1)
+            .toArray();
+          
+          if (taskSample.length > 0) {
+            // Check if boardId is stored correctly
+            apiInfo.taskSample = {
+              _id: taskSample[0]._id.toString(),
+              boardId: taskSample[0].boardId ? taskSample[0].boardId.toString() : 'missing',
+              boardIdType: taskSample[0].boardId ? typeof taskSample[0].boardId : 'missing'
+            };
+          } else {
+            apiInfo.taskSample = 'No tasks found';
+          }
+        }
+        
+        // Get MongoDB server info
+        const serverStatus = await mongoose.connection.db.admin().serverStatus();
+        apiInfo.mongoVersion = serverStatus.version;
+      } catch (err) {
+        apiInfo.collectionsError = err.message;
+      }
+    }
+    
+    res.status(200).json(apiInfo);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Add fallback middleware for database disconnection
 app.use((req, res, next) => {
   // If MongoDB is not connected and the route is a data fetch route
@@ -261,113 +416,6 @@ app.use((req, res, next) => {
   }
   
   next();
-});
-
-// Add detailed request logging middleware for diagnostics
-app.use((req, res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
-  next();
-});
-
-// Routes - we're using the routes as they are now defined with full paths
-app.use(boardRoutes);
-app.use(taskRoutes);
-
-// Add a monitoring endpoint for database stats
-app.get('/monitor/db-stats', async (req, res) => {
-  try {
-    if (mongoose.connection.readyState !== 1) {
-      return res.status(200).json({ 
-        connected: false,
-        message: 'Database not connected',
-        readyState: mongoose.connection.readyState
-      });
-    }
-    
-    // Get collection stats
-    const stats = {};
-    try {
-      stats.tasks = await mongoose.connection.db.collection('tasks').stats();
-      stats.boards = await mongoose.connection.db.collection('boards').stats();
-    } catch (err) {
-      stats.error = `Error getting collection stats: ${err.message}`;
-    }
-    
-    // Count documents
-    const counts = {};
-    try {
-      counts.tasks = await mongoose.connection.db.collection('tasks').countDocuments();
-      counts.boards = await mongoose.connection.db.collection('boards').countDocuments();
-    } catch (err) {
-      counts.error = `Error counting documents: ${err.message}`;
-    }
-    
-    res.status(200).json({
-      connected: true,
-      readyState: mongoose.connection.readyState,
-      database: mongoose.connection.db.databaseName,
-      collectionStats: stats,
-      documentCounts: counts
-    });
-  } catch (err) {
-    res.status(200).json({
-      connected: false,
-      error: err.message
-    });
-  }
-});
-
-// Add API version and collections info endpoint
-app.get('/api/info', async (req, res) => {
-  try {
-    // Basic API info
-    const apiInfo = {
-      version: '1.0.0',
-      name: 'Task Manager API',
-      status: 'running',
-      timestamp: new Date().toISOString(),
-      environment: process.env.NODE_ENV || 'development',
-      dbConnection: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
-    };
-    
-    // If connected, get collection names
-    if (mongoose.connection.readyState === 1) {
-      try {
-        // Get the collection names
-        const collections = await mongoose.connection.db.listCollections().toArray();
-        apiInfo.collections = collections.map(c => c.name);
-        
-        // Get some sample data to verify collections exist and have correct format
-        if (collections.some(c => c.name === 'tasks')) {
-          const taskSample = await mongoose.connection.db.collection('tasks')
-            .find({})
-            .limit(1)
-            .toArray();
-          
-          if (taskSample.length > 0) {
-            // Check if boardId is stored correctly
-            apiInfo.taskSample = {
-              _id: taskSample[0]._id.toString(),
-              boardId: taskSample[0].boardId ? taskSample[0].boardId.toString() : 'missing',
-              boardIdType: taskSample[0].boardId ? typeof taskSample[0].boardId : 'missing'
-            };
-          } else {
-            apiInfo.taskSample = 'No tasks found';
-          }
-        }
-        
-        // Get MongoDB server info
-        const serverStatus = await mongoose.connection.db.admin().serverStatus();
-        apiInfo.mongoVersion = serverStatus.version;
-      } catch (err) {
-        apiInfo.collectionsError = err.message;
-      }
-    }
-    
-    res.status(200).json(apiInfo);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
 });
 
 // Connect to MongoDB with detailed logging
@@ -498,9 +546,9 @@ app.use((err, req, res, next) => {
 
 // Start the server in non-production environments
 if (process.env.NODE_ENV !== 'production') {
-  app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-  });
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+}); 
 }
 
 // Export for Vercel
