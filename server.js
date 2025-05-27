@@ -114,6 +114,13 @@ app.get('/', (req, res) => {
   res.json({ message: 'Task Manager API is running' });
 });
 
+// Add compatibility routes for backward compatibility
+app.get('/api/tasks/:boardId', (req, res) => {
+  console.log('Compatibility route hit - redirecting to new format');
+  // Redirect to the new format
+  res.redirect(`/api/tasks/board/${req.params.boardId}`);
+});
+
 // Add fallback middleware for database disconnection
 app.use((req, res, next) => {
   // If MongoDB is not connected and the route is a data fetch route

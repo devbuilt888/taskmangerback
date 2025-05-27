@@ -5,14 +5,55 @@ const Board = require('../models/Board');
 const { requireAuth } = require('../middleware/auth');
 const mongoose = require('mongoose');
 
-// Get all tasks for a board
-router.get('/tasks/:boardId', async (req, res) => {
+// Get tasks for a board
+router.get('/tasks/board/:boardId', async (req, res) => {
   try {
+    console.log(`GET /tasks/board/${req.params.boardId} - Fetching tasks for board`);
+    
+    if (!mongoose.Types.ObjectId.isValid(req.params.boardId)) {
+      console.error('Invalid board ID format:', req.params.boardId);
+      return res.status(400).json({ error: 'Invalid board ID format' });
+    }
+    
     const tasks = await Task.find({ boardId: req.params.boardId });
+    console.log(`Found ${tasks.length} tasks for board ${req.params.boardId}`);
     res.json(tasks);
   } catch (err) {
-    console.error('Error fetching tasks:', err);
-    res.status(500).json({ error: 'Server error' });
+    console.error('Error fetching tasks for board:', err);
+    res.status(500).json({ 
+      error: 'Server error',
+      message: err.message,
+      stack: process.env.NODE_ENV === 'production' ? undefined : err.stack
+    });
+  }
+});
+
+// Get a specific task by ID
+router.get('/tasks/:id', async (req, res) => {
+  try {
+    console.log(`GET /tasks/${req.params.id} - Fetching specific task`);
+    
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      console.error('Invalid task ID format:', req.params.id);
+      return res.status(400).json({ error: 'Invalid task ID format' });
+    }
+    
+    const task = await Task.findById(req.params.id);
+    
+    if (!task) {
+      console.error('Task not found with ID:', req.params.id);
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    
+    console.log('Task found:', task._id);
+    res.json(task);
+  } catch (err) {
+    console.error('Error fetching task:', err);
+    res.status(500).json({ 
+      error: 'Server error',
+      message: err.message,
+      stack: process.env.NODE_ENV === 'production' ? undefined : err.stack
+    });
   }
 });
 
