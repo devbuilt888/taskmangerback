@@ -116,9 +116,40 @@ app.get('/', (req, res) => {
 
 // Add compatibility routes for backward compatibility
 app.get('/api/tasks/:boardId', (req, res) => {
-  console.log('Compatibility route hit - redirecting to new format');
+  console.log('Compatibility route hit (with /api) - redirecting to new format');
   // Redirect to the new format
-  res.redirect(`/api/tasks/board/${req.params.boardId}`);
+  res.redirect(`/tasks/board/${req.params.boardId}`);
+});
+
+// Handle the case where frontend might call /api/tasks/board/:boardId
+app.get('/api/tasks/board/:boardId', (req, res) => {
+  console.log('Compatibility route hit (with /api/tasks/board) - redirecting to new format');
+  // Redirect to the new format without the /api prefix
+  res.redirect(`/tasks/board/${req.params.boardId}`);
+});
+
+// Create a debug endpoint to show all tasks
+app.get('/debug/tasks', async (req, res) => {
+  try {
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({ error: 'Database not connected' });
+    }
+    
+    const Task = mongoose.model('Task');
+    const tasks = await Task.find({}).limit(10);
+    
+    res.json({
+      count: tasks.length,
+      tasks: tasks.map(t => ({
+        id: t._id.toString(),
+        title: t.title,
+        boardId: t.boardId.toString(),
+        columnId: t.columnId
+      }))
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Add fallback middleware for database disconnection
@@ -241,6 +272,103 @@ app.use((req, res, next) => {
 // Routes - we're using the routes as they are now defined with full paths
 app.use(boardRoutes);
 app.use(taskRoutes);
+
+// Add a monitoring endpoint for database stats
+app.get('/monitor/db-stats', async (req, res) => {
+  try {
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(200).json({ 
+        connected: false,
+        message: 'Database not connected',
+        readyState: mongoose.connection.readyState
+      });
+    }
+    
+    // Get collection stats
+    const stats = {};
+    try {
+      stats.tasks = await mongoose.connection.db.collection('tasks').stats();
+      stats.boards = await mongoose.connection.db.collection('boards').stats();
+    } catch (err) {
+      stats.error = `Error getting collection stats: ${err.message}`;
+    }
+    
+    // Count documents
+    const counts = {};
+    try {
+      counts.tasks = await mongoose.connection.db.collection('tasks').countDocuments();
+      counts.boards = await mongoose.connection.db.collection('boards').countDocuments();
+    } catch (err) {
+      counts.error = `Error counting documents: ${err.message}`;
+    }
+    
+    res.status(200).json({
+      connected: true,
+      readyState: mongoose.connection.readyState,
+      database: mongoose.connection.db.databaseName,
+      collectionStats: stats,
+      documentCounts: counts
+    });
+  } catch (err) {
+    res.status(200).json({
+      connected: false,
+      error: err.message
+    });
+  }
+});
+
+// Add API version and collections info endpoint
+app.get('/api/info', async (req, res) => {
+  try {
+    // Basic API info
+    const apiInfo = {
+      version: '1.0.0',
+      name: 'Task Manager API',
+      status: 'running',
+      timestamp: new Date().toISOString(),
+      environment: process.env.NODE_ENV || 'development',
+      dbConnection: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
+    };
+    
+    // If connected, get collection names
+    if (mongoose.connection.readyState === 1) {
+      try {
+        // Get the collection names
+        const collections = await mongoose.connection.db.listCollections().toArray();
+        apiInfo.collections = collections.map(c => c.name);
+        
+        // Get some sample data to verify collections exist and have correct format
+        if (collections.some(c => c.name === 'tasks')) {
+          const taskSample = await mongoose.connection.db.collection('tasks')
+            .find({})
+            .limit(1)
+            .toArray();
+          
+          if (taskSample.length > 0) {
+            // Check if boardId is stored correctly
+            apiInfo.taskSample = {
+              _id: taskSample[0]._id.toString(),
+              boardId: taskSample[0].boardId ? taskSample[0].boardId.toString() : 'missing',
+              boardIdType: taskSample[0].boardId ? typeof taskSample[0].boardId : 'missing'
+            };
+          } else {
+            apiInfo.taskSample = 'No tasks found';
+          }
+        }
+        
+        // Get MongoDB server info
+        const serverStatus = await mongoose.connection.db.admin().serverStatus();
+        apiInfo.mongoVersion = serverStatus.version;
+      } catch (err) {
+        apiInfo.collectionsError = err.message;
+      }
+    }
+    
+    res.status(200).json(apiInfo);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // Connect to MongoDB with detailed logging
 console.log('Attempting to connect to MongoDB...');

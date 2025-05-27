@@ -15,8 +15,25 @@ router.get('/tasks/board/:boardId', async (req, res) => {
       return res.status(400).json({ error: 'Invalid board ID format' });
     }
     
-    const tasks = await Task.find({ boardId: req.params.boardId });
+    // Convert boardId string to ObjectId to ensure proper matching
+    const boardIdObj = mongoose.Types.ObjectId(req.params.boardId);
+    
+    // Debug: Log what we're looking for
+    console.log('Finding tasks with boardId (ObjectId):', boardIdObj);
+    
+    // Find tasks with the converted ObjectId
+    const tasks = await Task.find({ boardId: boardIdObj });
     console.log(`Found ${tasks.length} tasks for board ${req.params.boardId}`);
+    
+    // Debug: If no tasks found, query to see what boardIds exist
+    if (tasks.length === 0) {
+      console.log('No tasks found. Checking for any tasks in database...');
+      const allTasks = await Task.find({}).limit(5);
+      console.log('Sample of tasks in database:', 
+        allTasks.map(t => ({ id: t._id.toString(), boardId: t.boardId.toString() }))
+      );
+    }
+    
     res.json(tasks);
   } catch (err) {
     console.error('Error fetching tasks for board:', err);
@@ -93,13 +110,21 @@ router.post('/tasks', requireAuth.optional, async (req, res) => {
       console.log('Removing userId from request');
     }
     
-    // Ensure boardId is a valid ObjectId
+    // Ensure boardId is a valid ObjectId and log its type
+    console.log('Original boardId type:', typeof taskData.boardId);
+    console.log('Original boardId value:', taskData.boardId);
+    
     try {
       if (!mongoose.Types.ObjectId.isValid(taskData.boardId)) {
         console.error('Invalid boardId format:', taskData.boardId);
         return res.status(400).json({ error: 'Invalid board ID format' });
       }
+      
+      // Convert to ObjectId to ensure consistency
       taskData.boardId = mongoose.Types.ObjectId(taskData.boardId);
+      console.log('Converted boardId type:', typeof taskData.boardId);
+      console.log('Converted boardId instanceof ObjectId:', taskData.boardId instanceof mongoose.Types.ObjectId);
+      console.log('Converted boardId value:', taskData.boardId.toString());
     } catch (err) {
       console.error('Error converting boardId to ObjectId:', err.message);
       return res.status(400).json({ error: 'Invalid board ID format' });
@@ -203,9 +228,21 @@ router.post('/tasks', requireAuth.optional, async (req, res) => {
 // Update a task
 router.put('/tasks/:id', requireAuth.optional, async (req, res) => {
   try {
+    console.log(`PUT /tasks/${req.params.id} - Updating task`);
+    
     // Remove userId if present and ensure isShared is true
     const { userId, ...updates } = req.body;
     updates.isShared = true;
+    
+    // If boardId is being updated, ensure it's an ObjectId
+    if (updates.boardId && typeof updates.boardId === 'string') {
+      if (mongoose.Types.ObjectId.isValid(updates.boardId)) {
+        updates.boardId = mongoose.Types.ObjectId(updates.boardId);
+        console.log('Converted boardId to ObjectId in update:', updates.boardId);
+      } else {
+        return res.status(400).json({ error: 'Invalid board ID format' });
+      }
+    }
     
     const task = await Task.findByIdAndUpdate(
       req.params.id,
@@ -217,6 +254,7 @@ router.put('/tasks/:id', requireAuth.optional, async (req, res) => {
       return res.status(404).json({ error: 'Task not found' });
     }
     
+    console.log('Task updated:', task._id);
     res.json(task);
   } catch (err) {
     console.error('Error updating task:', err);
