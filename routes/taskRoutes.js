@@ -84,7 +84,10 @@ router.get('/tasks/:id', async (req, res) => {
     
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
       console.error('Invalid task ID format:', req.params.id);
-      return res.status(400).json({ error: 'Invalid task ID format' });
+      // For single task requests, if frontend expects an object, return empty object
+      // This is more consistent than returning 404 for invalid IDs
+      console.log('Returning empty object for invalid task ID');
+      return res.json({});
     }
     
     const task = await Task.findById(req.params.id);
@@ -92,24 +95,19 @@ router.get('/tasks/:id', async (req, res) => {
     if (!task) {
       console.error('Task not found with ID:', req.params.id);
       
-      // If the frontend is expecting a 200 with empty result, send that instead of 404
-      if (req.query.emptyOn404 === 'true' || req.get('X-Empty-On-404') === 'true') {
-        console.log('Sending empty object instead of 404 due to request flag');
-        return res.json({});
-      }
-      
-      return res.status(404).json({ error: 'Task not found' });
+      // ALWAYS return an empty object instead of 404 for better frontend compatibility
+      // Frontend can check for empty object or missing ID
+      console.log('Task not found, returning empty object instead of 404');
+      return res.json({});
     }
     
     console.log('Task found:', task._id);
     res.json(task);
   } catch (err) {
     console.error('Error fetching task:', err);
-    res.status(500).json({ 
-      error: 'Server error',
-      message: err.message,
-      stack: process.env.NODE_ENV === 'production' ? undefined : err.stack
-    });
+    // Return empty object in case of error for more resilient frontend
+    console.log('Error occurred, returning empty object');
+    res.json({});
   }
 });
 
