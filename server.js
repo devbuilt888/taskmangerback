@@ -531,6 +531,39 @@ app.get('/boards', (req, res, next) => {
   return res.json([]);
 });
 
+// Add a direct individual board route
+app.get('/boards/:boardId', (req, res, next) => {
+  console.log('Direct individual board route triggered for:', req.params.boardId);
+  
+  // If the DB is connected, let the regular route handle it
+  if (mongoose.connection.readyState === 1) {
+    // Let normal route handling proceed
+    return next();
+  }
+  
+  // If DB is not connected or there's another issue, return placeholder board
+  console.log('Using direct individual board route fallback - returning placeholder board');
+  return res.json({
+    _id: req.params.boardId,
+    title: "Board Placeholder",
+    description: "This is a placeholder for a board that could not be loaded",
+    isShared: true,
+    columns: [
+      { id: "column-1", title: "To Do", taskIds: [] },
+      { id: "column-2", title: "In Progress", taskIds: [] },
+      { id: "column-3", title: "Done", taskIds: [] }
+    ],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  });
+});
+
+// Add API compatibility for individual board
+app.get('/api/boards/:boardId', (req, res) => {
+  console.log('API compatibility route for individual board:', req.params.boardId);
+  res.redirect(`/boards/${req.params.boardId}`);
+});
+
 // Connect to MongoDB with detailed logging
 console.log('Attempting to connect to MongoDB...');
 console.log('Environment:', process.env.NODE_ENV || 'development');
