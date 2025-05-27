@@ -58,14 +58,17 @@ router.get('/boards/:boardId/tasks', async (req, res) => {
     
     if (!mongoose.Types.ObjectId.isValid(req.params.boardId)) {
       console.error('Invalid board ID format:', req.params.boardId);
-      return res.status(400).json({ error: 'Invalid board ID format' });
+      // IMPORTANT: Return empty ARRAY for board tasks
+      console.log('Returning empty ARRAY for invalid board ID in compatibility route');
+      return res.json([]);
     }
     
     // Redirect to the standard route
     res.redirect(`/tasks/board/${req.params.boardId}`);
   } catch (err) {
     console.error('Error in compatibility route:', err);
-    // Default to empty array in case of error
+    // IMPORTANT: Return empty ARRAY for board tasks
+    console.log('Returning empty ARRAY due to error in compatibility route');
     res.json([]);
   }
 });

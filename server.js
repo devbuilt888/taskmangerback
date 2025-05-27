@@ -114,7 +114,7 @@ app.get('/', (req, res) => {
   res.json({ message: 'Task Manager API is running' });
 });
 
-// Add compatibility routes for backward compatibility
+// Add compatibility routes for backward compatibility with /api prefix
 app.get('/api/tasks/:boardId', (req, res) => {
   console.log('Compatibility route hit (with /api) - redirecting to new format');
   // Redirect to the new format
@@ -126,6 +126,12 @@ app.get('/api/tasks/board/:boardId', (req, res) => {
   console.log('Compatibility route hit (with /api/tasks/board) - redirecting to new format');
   // Redirect to the new format without the /api prefix
   res.redirect(`/tasks/board/${req.params.boardId}`);
+});
+
+// Fix for /boards with empty results in API path
+app.get('/api/boards', async (req, res) => {
+  console.log('/api/boards route hit - redirecting to /boards');
+  res.redirect('/boards');
 });
 
 // Create a debug endpoint to show all tasks
@@ -209,48 +215,60 @@ app.use((req, res, next) => {
 app.use((req, res, next) => {
   // Check if this is a direct task ID request (not a board/tasks request)
   const taskPattern = /^\/tasks\/([^\/]+)\/?$/;
-  const match = req.path.match(taskPattern);
+  const boardTasksPattern = /^\/tasks\/board\/([^\/]+)\/?$/;
   
-  if (match && req.method === 'GET' && !req.path.includes('/board/')) {
-    const taskId = match[1];
-    console.log('Special task handling middleware for:', taskId);
+  const taskMatch = req.path.match(taskPattern);
+  const boardTasksMatch = req.path.match(boardTasksPattern);
+  
+  // Handle board tasks requests - should always return an array
+  if (boardTasksMatch && req.method === 'GET') {
+    const boardId = boardTasksMatch[1];
+    console.log('Board tasks middleware for board:', boardId);
     
     // If database is not connected or client needs special handling
     if (mongoose.connection.readyState !== 1 || 
         req.query.fallback === 'true' || 
         req.get('X-Empty-On-404') === 'true') {
-      console.log('Providing fallback for task request');
+      console.log('Providing fallback for board tasks request - returning EMPTY ARRAY');
       
-      // Return an empty object rather than 404
-      return res.json({});
+      // Return an empty ARRAY for board tasks
+      return res.json([]);
     }
+  }
+  
+  // Handle individual task requests - should return an object
+  else if (taskMatch && req.method === 'GET' && !req.path.includes('/board/')) {
+    const taskId = taskMatch[1];
+    console.log('Individual task middleware for task:', taskId);
     
-    // Check if we should try to ensure a real task exists for troubleshooting
-    if (req.query.ensureExists === 'true' && mongoose.connection.readyState === 1) {
-      console.log('Checking if a task exists with ID:', taskId);
+    // If database is not connected or client needs special handling
+    if (mongoose.connection.readyState !== 1 || 
+        req.query.fallback === 'true' || 
+        req.get('X-Empty-On-404') === 'true') {
+      console.log('Providing fallback for task request - returning EMPTY OBJECT');
       
-      const Task = mongoose.model('Task');
-      Task.findById(taskId)
-        .then(task => {
-          if (!task) {
-            console.log('Task not found, returning empty object');
-            res.json({});
-          } else {
-            console.log('Task found, continuing to regular handler');
-            next();
-          }
-        })
-        .catch(err => {
-          console.error('Error checking for task:', err);
-          res.json({});
-        });
-        
-      return;
+      // Return an empty OBJECT for individual task
+      return res.json({});
     }
   }
   
   // Continue to regular route handling
   next();
+});
+
+// Add a direct board tasks route for consistent empty array responses
+app.get('/tasks/board/:boardId', (req, res, next) => {
+  console.log('Direct board tasks route triggered for board:', req.params.boardId);
+  
+  // If the DB is connected, let the regular route handle it
+  if (mongoose.connection.readyState === 1) {
+    // Let normal route handling proceed
+    return next();
+  }
+  
+  // If DB is not connected or there's another issue, return empty array
+  console.log('Using direct board tasks route fallback - returning EMPTY ARRAY');
+  return res.json([]);
 });
 
 // Add a direct task lookup route (make sure this is before route registration)
@@ -496,6 +514,21 @@ app.use((req, res, next) => {
   }
   
   next();
+});
+
+// Add a direct boards route for consistent empty array responses
+app.get('/boards', (req, res, next) => {
+  console.log('Direct boards route triggered');
+  
+  // If the DB is connected, let the regular route handle it
+  if (mongoose.connection.readyState === 1) {
+    // Let normal route handling proceed
+    return next();
+  }
+  
+  // If DB is not connected or there's another issue, return empty array
+  console.log('Using direct boards route fallback - returning EMPTY ARRAY');
+  return res.json([]);
 });
 
 // Connect to MongoDB with detailed logging

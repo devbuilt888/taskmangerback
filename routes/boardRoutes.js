@@ -17,10 +17,9 @@ router.get('/boards', async (req, res) => {
     
     if (connectionState !== 1) {
       console.error('MongoDB not connected when trying to fetch boards');
-      return res.status(500).json({ 
-        error: 'Database connection issue', 
-        state: connectionState 
-      });
+      // Return an empty array instead of an error for better frontend handling
+      console.log('Returning empty ARRAY due to database connection issue');
+      return res.json([]);
     }
     
     // Try to execute the query
@@ -28,15 +27,13 @@ router.get('/boards', async (req, res) => {
     const boards = await Board.find();
     console.log(`Successfully fetched ${boards.length} boards`);
     
-    res.json(boards);
+    // Always return an array, even if it's empty
+    res.json(boards || []);
   } catch (err) {
     console.error('Error fetching boards:', err);
-    // Return more detailed error info
-    res.status(500).json({ 
-      error: 'Server error', 
-      message: err.message,
-      stack: process.env.NODE_ENV === 'production' ? undefined : err.stack
-    });
+    // Return empty array in case of error for more resilient frontend
+    console.log('Returning empty ARRAY due to error in boards route');
+    res.json([]);
   }
 });
 
