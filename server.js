@@ -1352,4 +1352,201 @@ app.patch('/tasks/:taskId/move', (req, res, next) => {
     });
   }
   next();
+});
+
+// Add an endpoint to delete a board with all its tasks
+app.delete('/api/board/:boardId', async (req, res) => {
+  try {
+    console.log('Deleting board with ID:', req.params.boardId);
+    
+    if (!req.params.boardId) {
+      return res.status(400).json({ error: 'Board ID is required' });
+    }
+    
+    // If database is not connected, return error
+    if (mongoose.connection.readyState !== 1) {
+      console.log('Database not connected, cannot delete board');
+      return res.status(503).json({ 
+        error: 'Database connection unavailable',
+        success: false
+      });
+    }
+    
+    // Get raw MongoDB collections directly
+    const db = mongoose.connection.db;
+    const boardsCollection = db.collection('boards');
+    const tasksCollection = db.collection('tasks');
+    
+    // Clean and validate the board ID
+    let boardId;
+    try {
+      // Clean the board ID (remove any non-hex characters)
+      const rawBoardId = req.params.boardId.toString().replace(/[^0-9a-f]/gi, '');
+      if (rawBoardId.length !== 24) {
+        return res.status(400).json({ 
+          error: 'Invalid board ID format',
+          success: false
+        });
+      }
+      
+      // Create a proper MongoDB ObjectId
+      boardId = new mongoose.Types.ObjectId(rawBoardId);
+    } catch (err) {
+      console.error('Error with board ID:', err);
+      return res.status(400).json({ 
+        error: 'Invalid board ID',
+        success: false
+      });
+    }
+    
+    // First, check if the board exists
+    const board = await boardsCollection.findOne({ _id: boardId });
+    if (!board) {
+      return res.status(404).json({
+        error: 'Board not found',
+        success: false
+      });
+    }
+    
+    // Store some info about the board before deleting
+    const boardInfo = {
+      _id: board._id.toString(),
+      title: board.title,
+      taskIdsCount: 0
+    };
+    
+    // Count how many task IDs are in this board
+    if (board.columns) {
+      board.columns.forEach(column => {
+        if (column.taskIds && Array.isArray(column.taskIds)) {
+          boardInfo.taskIdsCount += column.taskIds.length;
+        }
+      });
+    }
+    
+    // Delete all tasks associated with this board
+    const deleteTasksResult = await tasksCollection.deleteMany({ boardId: boardId });
+    
+    // Delete the board
+    const deleteBoardResult = await boardsCollection.deleteOne({ _id: boardId });
+    
+    // Check if the board was deleted
+    if (deleteBoardResult.deletedCount === 0) {
+      return res.status(500).json({
+        error: 'Failed to delete board',
+        success: false
+      });
+    }
+    
+    res.json({
+      success: true,
+      message: 'Board deleted successfully',
+      board: boardInfo,
+      tasksDeleted: deleteTasksResult.deletedCount,
+      boardDeleted: deleteBoardResult.deletedCount === 1
+    });
+  } catch (err) {
+    console.error('Error deleting board:', err);
+    res.status(500).json({
+      error: 'Failed to delete board',
+      message: err.message,
+      success: false
+    });
+  }
+});
+
+// Add an endpoint to delete a specific task
+app.delete('/api/task/:taskId', async (req, res) => {
+  try {
+    console.log('Deleting task with ID:', req.params.taskId);
+    
+    if (!req.params.taskId) {
+      return res.status(400).json({ error: 'Task ID is required' });
+    }
+    
+    // If database is not connected, return error
+    if (mongoose.connection.readyState !== 1) {
+      console.log('Database not connected, cannot delete task');
+      return res.status(503).json({ 
+        error: 'Database connection unavailable',
+        success: false
+      });
+    }
+    
+    // Get raw MongoDB collections directly
+    const db = mongoose.connection.db;
+    const boardsCollection = db.collection('boards');
+    const tasksCollection = db.collection('tasks');
+    
+    // Clean and validate the task ID
+    let taskId;
+    try {
+      // Clean the task ID (remove any non-hex characters)
+      const rawTaskId = req.params.taskId.toString().replace(/[^0-9a-f]/gi, '');
+      if (rawTaskId.length !== 24) {
+        return res.status(400).json({ 
+          error: 'Invalid task ID format',
+          success: false
+        });
+      }
+      
+      // Create a proper MongoDB ObjectId
+      taskId = new mongoose.Types.ObjectId(rawTaskId);
+    } catch (err) {
+      console.error('Error with task ID:', err);
+      return res.status(400).json({ 
+        error: 'Invalid task ID',
+        success: false
+      });
+    }
+    
+    // First, find the task to get its boardId and columnId
+    const task = await tasksCollection.findOne({ _id: taskId });
+    if (!task) {
+      return res.status(404).json({
+        error: 'Task not found',
+        success: false
+      });
+    }
+    
+    // Store task info before deleting
+    const taskInfo = {
+      _id: task._id.toString(),
+      title: task.title,
+      boardId: task.boardId.toString(),
+      columnId: task.columnId
+    };
+    
+    // Delete the task
+    const deleteTaskResult = await tasksCollection.deleteOne({ _id: taskId });
+    
+    // Check if the task was deleted
+    if (deleteTaskResult.deletedCount === 0) {
+      return res.status(500).json({
+        error: 'Failed to delete task',
+        success: false
+      });
+    }
+    
+    // Remove the task ID from the board's column
+    const updateBoardResult = await boardsCollection.updateOne(
+      { _id: task.boardId },
+      { $pull: { 'columns.$[elem].taskIds': taskId.toString() } },
+      { arrayFilters: [{ 'elem.id': task.columnId }] }
+    );
+    
+    res.json({
+      success: true,
+      message: 'Task deleted successfully',
+      task: taskInfo,
+      boardUpdated: updateBoardResult.modifiedCount === 1
+    });
+  } catch (err) {
+    console.error('Error deleting task:', err);
+    res.status(500).json({
+      error: 'Failed to delete task',
+      message: err.message,
+      success: false
+    });
+  }
 }); 

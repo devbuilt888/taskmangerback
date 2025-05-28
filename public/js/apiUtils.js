@@ -135,6 +135,60 @@ async function getEnhancedTasksForBoard(boardId, apiBaseUrl = '') {
   }
 }
 
+/**
+ * Delete a board and all its tasks
+ * @param {string} boardId - The board ID to delete
+ * @param {string} apiBaseUrl - The base URL for the API
+ * @returns {Promise<Object>} - The result of the delete operation
+ */
+async function deleteBoard(boardId, apiBaseUrl = '') {
+  const cleanId = cleanMongoId(boardId);
+  
+  try {
+    const response = await fetch(`${apiBaseUrl}/api/board/${cleanId}`, {
+      method: 'DELETE',
+      headers: {
+        'Accept': 'application/json'
+      }
+    });
+    
+    return await response.json();
+  } catch (error) {
+    console.error('Error deleting board:', error);
+    return { 
+      success: false, 
+      error: error.message 
+    };
+  }
+}
+
+/**
+ * Delete a specific task
+ * @param {string} taskId - The task ID to delete
+ * @param {string} apiBaseUrl - The base URL for the API
+ * @returns {Promise<Object>} - The result of the delete operation
+ */
+async function deleteTask(taskId, apiBaseUrl = '') {
+  const cleanId = cleanMongoId(taskId);
+  
+  try {
+    const response = await fetch(`${apiBaseUrl}/api/task/${cleanId}`, {
+      method: 'DELETE',
+      headers: {
+        'Accept': 'application/json'
+      }
+    });
+    
+    return await response.json();
+  } catch (error) {
+    console.error('Error deleting task:', error);
+    return { 
+      success: false, 
+      error: error.message 
+    };
+  }
+}
+
 // Export the utilities for use in other scripts
 window.TaskManagerUtils = {
   cleanMongoId,
@@ -143,5 +197,7 @@ window.TaskManagerUtils = {
   createTaskSafely,
   getBoardTasksSafely,
   getBoardWithTasks,
-  getEnhancedTasksForBoard
+  getEnhancedTasksForBoard,
+  deleteBoard,
+  deleteTask
 }; 

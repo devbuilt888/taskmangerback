@@ -341,4 +341,138 @@ async function loadBoardWithTasks(boardId) {
 }
 ```
 
-These new endpoints make it easier to build a responsive UI by reducing the number of API calls needed and providing more complete data in a single request. 
+These new endpoints make it easier to build a responsive UI by reducing the number of API calls needed and providing more complete data in a single request.
+
+## Deleting Data
+
+We've added new endpoints for deleting boards and tasks:
+
+### 1. Delete a Board with All Its Tasks
+
+This endpoint deletes a board and all tasks associated with it:
+
+```javascript
+// Delete a board and all its tasks
+async function deleteBoard(boardId) {
+  const cleanId = TaskManagerUtils.cleanMongoId(boardId);
+  
+  const response = await fetch(`/api/board/${cleanId}`, {
+    method: 'DELETE',
+    headers: {
+      'Accept': 'application/json'
+    }
+  });
+  
+  return await response.json();
+}
+```
+
+The response includes information about what was deleted:
+
+```json
+{
+  "success": true,
+  "message": "Board deleted successfully",
+  "board": {
+    "_id": "6834deac4d556859a0d3277f",
+    "title": "My Board",
+    "taskIdsCount": 5
+  },
+  "tasksDeleted": 5,
+  "boardDeleted": true
+}
+```
+
+### 2. Delete a Specific Task
+
+This endpoint deletes a single task and removes its ID from the board's column:
+
+```javascript
+// Delete a specific task
+async function deleteTask(taskId) {
+  const cleanId = TaskManagerUtils.cleanMongoId(taskId);
+  
+  const response = await fetch(`/api/task/${cleanId}`, {
+    method: 'DELETE',
+    headers: {
+      'Accept': 'application/json'
+    }
+  });
+  
+  return await response.json();
+}
+```
+
+The response includes information about the deleted task:
+
+```json
+{
+  "success": true,
+  "message": "Task deleted successfully",
+  "task": {
+    "_id": "68362dcbe85f17690e8e50c9",
+    "title": "My Task",
+    "boardId": "6834deac4d556859a0d3277f",
+    "columnId": "todo"
+  },
+  "boardUpdated": true
+}
+```
+
+### Implementation Example
+
+Here's how to use these endpoints in your frontend:
+
+```javascript
+// Delete a task with confirmation
+async function deleteTaskWithConfirmation(taskId, taskTitle) {
+  if (confirm(`Are you sure you want to delete task "${taskTitle}"?`)) {
+    try {
+      const result = await TaskManagerUtils.deleteTask(taskId);
+      
+      if (result.success) {
+        console.log('Task deleted successfully');
+        // Update your UI here
+        return true;
+      } else {
+        console.error('Failed to delete task:', result.error || result.message);
+        return false;
+      }
+    } catch (error) {
+      console.error('Error deleting task:', error);
+      return false;
+    }
+  }
+  return false;
+}
+
+// Delete a board with confirmation
+async function deleteBoardWithConfirmation(boardId, boardTitle) {
+  if (confirm(`WARNING: Are you sure you want to delete board "${boardTitle}" and ALL its tasks?`)) {
+    try {
+      const result = await TaskManagerUtils.deleteBoard(boardId);
+      
+      if (result.success) {
+        console.log(`Board deleted with ${result.tasksDeleted} tasks`);
+        // Update your UI here
+        return true;
+      } else {
+        console.error('Failed to delete board:', result.error || result.message);
+        return false;
+      }
+    } catch (error) {
+      console.error('Error deleting board:', error);
+      return false;
+    }
+  }
+  return false;
+}
+```
+
+These endpoints make it easy to implement delete functionality in your task management application while ensuring that related data is properly cleaned up.
+
+---
+
+## Complete API Integration Example
+
+// ... existing content ... 

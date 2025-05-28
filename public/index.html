@@ -136,6 +136,24 @@
     </div>
   </div>
   
+  <div class="card">
+    <h2>Delete a Task</h2>
+    <div>
+      <label for="taskIdToDelete">Task ID:</label>
+      <input type="text" id="taskIdToDelete" placeholder="Enter Task ID to delete">
+      <button id="deleteTaskBtn">Delete Task</button>
+    </div>
+  </div>
+  
+  <div class="card">
+    <h2>Delete a Board with All Tasks</h2>
+    <div>
+      <label for="boardIdToDelete">Board ID:</label>
+      <input type="text" id="boardIdToDelete" placeholder="Enter Board ID to delete">
+      <button id="deleteBoardBtn" style="background-color: #e74c3c;">Delete Board & Tasks</button>
+    </div>
+  </div>
+  
   <div id="output"></div>
   
   <script src="/js/apiUtils.js"></script>
@@ -256,6 +274,50 @@
             columnId: task.columnId
           }))
         });
+      } catch (error) {
+        showOutput('Error', { message: error.message });
+      }
+    });
+    
+    // Handle deleting a task
+    document.getElementById('deleteTaskBtn').addEventListener('click', async () => {
+      const taskId = document.getElementById('taskIdToDelete').value;
+      
+      if (!confirm(`Are you sure you want to delete this task? This action cannot be undone.`)) {
+        showOutput('Delete Task', { status: 'Cancelled by user' });
+        return;
+      }
+      
+      try {
+        showOutput('Deleting task...', {
+          taskId: taskId,
+          cleanedTaskId: TaskManagerUtils.cleanMongoId(taskId)
+        });
+        
+        const result = await TaskManagerUtils.deleteTask(taskId);
+        showOutput('Delete Task Result', result);
+      } catch (error) {
+        showOutput('Error', { message: error.message });
+      }
+    });
+    
+    // Handle deleting a board with all tasks
+    document.getElementById('deleteBoardBtn').addEventListener('click', async () => {
+      const boardId = document.getElementById('boardIdToDelete').value;
+      
+      if (!confirm(`⚠️ WARNING: Are you sure you want to delete this board and ALL its tasks? This action cannot be undone.`)) {
+        showOutput('Delete Board', { status: 'Cancelled by user' });
+        return;
+      }
+      
+      try {
+        showOutput('Deleting board and all tasks...', {
+          boardId: boardId,
+          cleanedBoardId: TaskManagerUtils.cleanMongoId(boardId)
+        });
+        
+        const result = await TaskManagerUtils.deleteBoard(boardId);
+        showOutput('Delete Board Result', result);
       } catch (error) {
         showOutput('Error', { message: error.message });
       }
