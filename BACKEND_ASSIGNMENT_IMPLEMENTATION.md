@@ -320,8 +320,9 @@ fetch('/tasks/user/user_123')
 ### New Endpoints
 - `GET /api/users` - List all users
 - `GET /api/users/:userId` - Get specific user
+- `GET /api/users/:userId/tasks` - Get tasks for specific user (with board info)
 - `GET /api/my-tasks` - Get current user's tasks
-- `GET /tasks/user/:userId` - Get tasks for specific user
+- `GET /tasks/user/:userId` - Get tasks for specific user (Mongoose route)
 
 ### Updated Endpoints
 - `POST /api/simple-create-task` - Now accepts `assignedUserId`

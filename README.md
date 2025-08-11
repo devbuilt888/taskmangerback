@@ -110,6 +110,7 @@ To configure CORS for your specific frontend:
 
 - `GET /api/users` - Get all users from Clerk (for task assignment)
 - `GET /api/users/:userId` - Get a specific user by ID
+- `GET /api/users/:userId/tasks` - Get all tasks assigned to a specific user
 - `GET /api/my-tasks` - Get tasks assigned to the current authenticated user
 
 ### Health Checks

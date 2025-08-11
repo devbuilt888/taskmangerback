@@ -954,6 +954,7 @@ app.get('/api/board-with-tasks/:boardId', async (req, res) => {
         _id: task._id.toString(),
         title: task.title,
         description: task.description || '',
+        assignedUserId: task.assignedUserId || null,
         color: task.color || 'blue',
         priority: task.priority || 'medium',
         columnId: task.columnId
@@ -1045,6 +1046,7 @@ app.get('/api/enhanced-tasks/:boardId', async (req, res) => {
       description: task.description || '',
       boardId: task.boardId.toString(),
       columnId: task.columnId,
+      assignedUserId: task.assignedUserId || null, // Include assignment field
       color: task.color || 'blue',
       priority: task.priority || 'medium',
       isShared: task.isShared !== false, // Default to true if undefined
@@ -1140,6 +1142,74 @@ app.get('/api/users/:userId', async (req, res) => {
   }
 });
 
+// Get tasks assigned to a specific user (public endpoint)
+app.get('/api/users/:userId/tasks', async (req, res) => {
+  try {
+    console.log(`GET /api/users/${req.params.userId}/tasks - Fetching tasks for specific user`);
+    
+    const userId = req.params.userId;
+    if (!userId || userId === 'undefined' || userId === 'null') {
+      console.log('Invalid or missing user ID, returning empty result');
+      return res.json({
+        userId: userId,
+        tasks: [],
+        count: 0
+      });
+    }
+    
+    // Get raw MongoDB collections directly
+    const db = mongoose.connection.db;
+    const tasksCollection = db.collection('tasks');
+    const boardsCollection = db.collection('boards');
+    
+    // Find all tasks assigned to this user
+    const tasks = await tasksCollection.find({ assignedUserId: userId }).toArray();
+    console.log(`Found ${tasks.length} tasks assigned to user ${userId}`);
+    
+    // Get board information for each task
+    const tasksWithBoardInfo = await Promise.all(
+      tasks.map(async (task) => {
+        try {
+          const board = await boardsCollection.findOne({ _id: task.boardId });
+          
+          return {
+            ...task,
+            _id: task._id.toString(),
+            boardId: task.boardId.toString(),
+            assignedUserId: task.assignedUserId || null,
+            boardTitle: board?.title || 'Unknown Board',
+            boardDescription: board?.description || ''
+          };
+        } catch (err) {
+          console.error('Error fetching board for task:', task._id, err);
+          return {
+            ...task,
+            _id: task._id.toString(),
+            boardId: task.boardId.toString(),
+            assignedUserId: task.assignedUserId || null,
+            boardTitle: 'Unknown Board',
+            boardDescription: ''
+          };
+        }
+      })
+    );
+    
+    res.json({
+      userId,
+      tasks: tasksWithBoardInfo,
+      count: tasksWithBoardInfo.length
+    });
+  } catch (err) {
+    console.error('Error fetching user tasks:', err);
+    // Return empty result in case of error for more resilient frontend
+    res.json({
+      userId: req.params.userId,
+      tasks: [],
+      count: 0
+    });
+  }
+});
+
 // Get tasks assigned to current user (using auth middleware)
 app.get('/api/my-tasks', async (req, res) => {
   try {
@@ -1173,6 +1243,7 @@ app.get('/api/my-tasks', async (req, res) => {
             ...task,
             _id: task._id.toString(),
             boardId: task.boardId.toString(),
+            assignedUserId: task.assignedUserId || null,
             boardTitle: board?.title || 'Unknown Board',
             boardDescription: board?.description || ''
           };
@@ -1182,6 +1253,7 @@ app.get('/api/my-tasks', async (req, res) => {
             ...task,
             _id: task._id.toString(),
             boardId: task.boardId.toString(),
+            assignedUserId: task.assignedUserId || null,
             boardTitle: 'Unknown Board',
             boardDescription: ''
           };
