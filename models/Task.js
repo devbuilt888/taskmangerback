@@ -43,6 +43,11 @@ const TaskSchema = new mongoose.Schema({
     type: String,
     required: true
   },
+  assignedUserId: {
+    type: String,
+    default: null,
+    trim: true
+  },
   isShared: {
     type: Boolean,
     default: true

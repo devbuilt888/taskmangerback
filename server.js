@@ -808,6 +808,7 @@ app.post('/api/simple-create-task', async (req, res) => {
       description: req.body.description || '',
       boardId: boardId,
       columnId: matchedColumn.id,
+      assignedUserId: req.body.assignedUserId || null,
       color: req.body.color || 'blue',
       priority: req.body.priority || 'medium',
       isShared: true,
@@ -1055,6 +1056,143 @@ app.get('/api/enhanced-tasks/:boardId', async (req, res) => {
   } catch (err) {
     console.error('Error getting enhanced tasks:', err);
     // Return empty array on error rather than error status
+    res.json([]);
+  }
+});
+
+// User management endpoints for Clerk integration
+// Get users from Clerk (for task assignment)
+app.get('/api/users', async (req, res) => {
+  try {
+    console.log('GET /api/users - Fetching users from Clerk');
+    
+    // Import Clerk if available
+    const { Clerk } = require('@clerk/clerk-sdk-node');
+    
+    if (!process.env.CLERK_API_KEY) {
+      console.warn('CLERK_API_KEY not configured, returning empty user list');
+      return res.json([]);
+    }
+    
+    const clerk = Clerk({ apiKey: process.env.CLERK_API_KEY });
+    
+    // Get list of users from Clerk
+    const users = await clerk.users.getUserList({
+      limit: 100, // Adjust limit as needed
+      offset: 0
+    });
+    
+    // Format users for frontend consumption
+    const formattedUsers = users.map(user => ({
+      id: user.id,
+      firstName: user.firstName || '',
+      lastName: user.lastName || '',
+      fullName: `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.username || user.id,
+      emailAddress: user.emailAddresses?.[0]?.emailAddress || '',
+      imageUrl: user.imageUrl || '',
+      username: user.username || ''
+    }));
+    
+    console.log(`Found ${formattedUsers.length} users from Clerk`);
+    res.json(formattedUsers);
+  } catch (err) {
+    console.error('Error fetching users from Clerk:', err);
+    // Return empty array instead of error for graceful fallback
+    res.json([]);
+  }
+});
+
+// Get a specific user by ID
+app.get('/api/users/:userId', async (req, res) => {
+  try {
+    console.log(`GET /api/users/${req.params.userId} - Fetching specific user`);
+    
+    if (!process.env.CLERK_API_KEY) {
+      console.warn('CLERK_API_KEY not configured, returning empty user object');
+      return res.json({});
+    }
+    
+    const { Clerk } = require('@clerk/clerk-sdk-node');
+    const clerk = Clerk({ apiKey: process.env.CLERK_API_KEY });
+    
+    const user = await clerk.users.getUser(req.params.userId);
+    
+    if (!user) {
+      return res.json({});
+    }
+    
+    const formattedUser = {
+      id: user.id,
+      firstName: user.firstName || '',
+      lastName: user.lastName || '',
+      fullName: `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.username || user.id,
+      emailAddress: user.emailAddresses?.[0]?.emailAddress || '',
+      imageUrl: user.imageUrl || '',
+      username: user.username || ''
+    };
+    
+    console.log(`Found user: ${formattedUser.fullName}`);
+    res.json(formattedUser);
+  } catch (err) {
+    console.error('Error fetching user from Clerk:', err);
+    // Return empty object instead of error for graceful fallback
+    res.json({});
+  }
+});
+
+// Get tasks assigned to current user (using auth middleware)
+app.get('/api/my-tasks', async (req, res) => {
+  try {
+    console.log('GET /api/my-tasks - Fetching tasks for current user');
+    
+    // This endpoint expects the user to be authenticated
+    // The userId should be available from the auth middleware
+    const userId = req.userId || req.headers['x-user-id'];
+    
+    if (!userId || userId === 'anonymous') {
+      console.log('No authenticated user, returning empty array');
+      return res.json([]);
+    }
+    
+    // Get raw MongoDB collections directly
+    const db = mongoose.connection.db;
+    const tasksCollection = db.collection('tasks');
+    const boardsCollection = db.collection('boards');
+    
+    // Find all tasks assigned to this user
+    const tasks = await tasksCollection.find({ assignedUserId: userId }).toArray();
+    console.log(`Found ${tasks.length} tasks assigned to user ${userId}`);
+    
+    // Get board information for each task
+    const tasksWithBoardInfo = await Promise.all(
+      tasks.map(async (task) => {
+        try {
+          const board = await boardsCollection.findOne({ _id: task.boardId });
+          
+          return {
+            ...task,
+            _id: task._id.toString(),
+            boardId: task.boardId.toString(),
+            boardTitle: board?.title || 'Unknown Board',
+            boardDescription: board?.description || ''
+          };
+        } catch (err) {
+          console.error('Error fetching board for task:', task._id, err);
+          return {
+            ...task,
+            _id: task._id.toString(),
+            boardId: task.boardId.toString(),
+            boardTitle: 'Unknown Board',
+            boardDescription: ''
+          };
+        }
+      })
+    );
+    
+    res.json(tasksWithBoardInfo);
+  } catch (err) {
+    console.error('Error fetching my tasks:', err);
+    // Return empty array in case of error for more resilient frontend
     res.json([]);
   }
 });

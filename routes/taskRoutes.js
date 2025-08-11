@@ -5,6 +5,37 @@ const Board = require('../models/Board');
 const { requireAuth } = require('../middleware/auth');
 const mongoose = require('mongoose');
 
+// Get tasks assigned to a specific user
+router.get('/tasks/user/:userId', async (req, res) => {
+  try {
+    console.log(`GET /tasks/user/${req.params.userId} - Fetching tasks assigned to user`);
+    
+    const userId = req.params.userId;
+    if (!userId || userId === 'undefined' || userId === 'null') {
+      console.log('Invalid or missing user ID, returning empty array');
+      return res.json([]);
+    }
+    
+    // Find all tasks assigned to this user
+    const tasks = await Task.find({ assignedUserId: userId }).populate('boardId', 'title description');
+    console.log(`Found ${tasks.length} tasks assigned to user ${userId}`);
+    
+    // Double-check that tasks is actually an array before returning
+    if (!Array.isArray(tasks)) {
+      console.error('Tasks result is not an array! Converting to empty array for frontend compatibility');
+      return res.json([]);
+    }
+    
+    // Always return the tasks array, even if empty
+    res.json(tasks);
+  } catch (err) {
+    console.error('Error fetching tasks for user:', err);
+    // Return empty array in case of error for more resilient frontend
+    console.log('Error occurred, returning empty array');
+    res.json([]);
+  }
+});
+
 // Get tasks for a board
 router.get('/tasks/board/:boardId', async (req, res) => {
   try {
@@ -130,6 +161,7 @@ router.post('/tasks', requireAuth.optional, async (req, res) => {
       description: req.body.description || '',
       boardId: req.body.boardId,
       columnId: req.body.columnId,
+      assignedUserId: req.body.assignedUserId || null,
       color: req.body.color || 'blue',
       priority: req.body.priority || 'medium',
       dueDate: req.body.dueDate,
@@ -333,6 +365,12 @@ router.put('/tasks/:id', requireAuth.optional, async (req, res) => {
     // Remove userId if present and ensure isShared is true
     const { userId, ...updates } = req.body;
     updates.isShared = true;
+    
+    // Handle assignment updates
+    if (updates.assignedUserId !== undefined) {
+      // Allow null/empty string to unassign
+      updates.assignedUserId = updates.assignedUserId || null;
+    }
     
     // If boardId is being updated, ensure it's an ObjectId
     if (updates.boardId && typeof updates.boardId === 'string') {

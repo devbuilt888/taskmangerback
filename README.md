@@ -91,8 +91,10 @@ To configure CORS for your specific frontend:
 ### Tasks
 
 - `GET /api/tasks/:boardId` - Get all tasks for a board
-- `POST /api/tasks` - Create a new task
-- `PUT /api/tasks/:id` - Update a task
+- `GET /tasks/user/:userId` - Get all tasks assigned to a specific user
+- `POST /api/tasks` - Create a new task (supports `assignedUserId` field)
+- `POST /api/simple-create-task` - Simplified task creation (supports `assignedUserId` field)
+- `PUT /api/tasks/:id` - Update a task (supports assignment changes)
 - `DELETE /api/tasks/:id` - Delete a task
 - `PATCH /api/tasks/:id/move` - Move a task to a different column
 
@@ -103,6 +105,12 @@ To configure CORS for your specific frontend:
 - `POST /api/boards` - Create a new board
 - `PUT /api/boards/:id` - Update a board
 - `DELETE /api/boards/:id` - Delete a board and all its tasks
+
+### Users (Clerk Integration)
+
+- `GET /api/users` - Get all users from Clerk (for task assignment)
+- `GET /api/users/:userId` - Get a specific user by ID
+- `GET /api/my-tasks` - Get tasks assigned to the current authenticated user
 
 ### Health Checks
 
